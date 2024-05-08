@@ -9,9 +9,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
-from herbie import FastHerbie
 
-from lib import Job, open_single_grib
+from lib import ForecastModel, open_single_grib
 
 # logger = logging.getLogger("herbie")
 # logger.setLevel(logging.DEBUG)
@@ -19,38 +18,22 @@ from lib import Job, open_single_grib
 # logger.addHandler(console_handler)
 
 logger = logging.getLogger("modal_app")
-logger.setLevel(logging.DEBUG)
-
-
-class ForecastModel:
-    def open_herbie(self, job: Job) -> xr.Dataset:
-        # save_dir = f"{random_string(10)}"
-        FH = FastHerbie(
-            DATES=[job.runtime],
-            fxx=list(job.steps),
-            model="gfs",
-            # save_dir=save_dir,
-        )
-        logger.debug("Searching {}".format(job.ingest.search))
-        paths = FH.download(search=job.ingest.search)
-        logger.debug("Downloaded paths {}".format(paths))
-
-        ds = (
-            xr.open_mfdataset(sorted(paths), combine="nested", concat_dim="step", engine="cfgrib")
-            .expand_dims("time")
-            .sortby("step")
-        )
-        return ds
+logger.setLevel(logging.INFO)
 
 
 class GFS(ForecastModel):
     # Product specific kwargs
-    append_dim = ("time",)
-    region_dim = ("step",)
+    runtime_dim = "time"
+    step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
     update_freq = timedelta(hours=6)
     step = list(range(0, 120)) + list(range(120, 385, 3))
+
+    def latest(self):
+        from herbie import HerbieLatest
+
+        return HerbieLatest(model="gfs")
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
         """
@@ -60,7 +43,6 @@ class GFS(ForecastModel):
         start = time.floor("6h").strftime("%H")
         print(date_str, start)
         fs = fsspec.filesystem("s3")
-        # TODO: handle the first file
         urls = sorted(
             [
                 "s3://" + f
@@ -70,8 +52,7 @@ class GFS(ForecastModel):
                 if "idx" not in f
             ]
         )
-        # TODO: drop MAX_URLS
-        return urls  # [:MAX_URLS]
+        return urls
 
     def open_single_grib(
         self,
@@ -129,10 +110,9 @@ class GFS(ForecastModel):
             )
             for f in futures
         ]
-        (concat_dim,) = self.region_dim
         return xr.concat(
             dsets,
-            dim=concat_dim,
+            dim=self.step_dim,
             join="override",
             compat="override",
             data_vars="minimal",

@@ -1,4 +1,5 @@
 import itertools
+import logging
 import random
 import string
 from dataclasses import dataclass
@@ -7,6 +8,9 @@ from typing import Hashable, Iterable
 import fsspec
 import pandas as pd
 import xarray as xr
+
+logger = logging.getLogger("modal_app")
+logger.setLevel(logging.INFO)
 
 
 def random_string(n):
@@ -26,6 +30,27 @@ class Job:
     runtime: pd.Timestamp
     steps: list[int]
     ingest: Ingest
+
+
+class ForecastModel:
+    def open_herbie(self, job: Job) -> xr.Dataset:
+        from herbie import FastHerbie
+
+        FH = FastHerbie(
+            DATES=[job.runtime],
+            fxx=list(job.steps),
+            model="gfs",
+        )
+        logger.debug("Searching {}".format(job.ingest.search))
+        paths = FH.download(search=job.ingest.search)
+        logger.debug("Downloaded paths {}".format(paths))  #
+
+        ds = (
+            xr.open_mfdataset(sorted(paths), combine="nested", concat_dim="step", engine="cfgrib")
+            .expand_dims("time")
+            .sortby("step")
+        )
+        return ds
 
 
 def batched(iterable, n):

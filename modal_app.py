@@ -1,19 +1,22 @@
 # TODO:
 # 1. figure out best pattern for shared imports
+# 2. Allow adding new variables to existing group with mode="a".
+# 3.
 
 
 import itertools
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import modal
 import pandas as pd
+import tenacity
 import xarray as xr
 import zarr
 from modal import App, Image
 
-from lib import Ingest
+from lib import ForecastModel, Ingest
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -27,24 +30,23 @@ app = App("example-forecast-ingest")
 
 #############
 ##### TODO:
-GROUP = "avg/"
 GRIB_KWARGS = dict(filter_by_keys={"shortName": "prate", "stepType": "avg"})
 MAX_URLS = 4
 INGEST_GROUPS = [
-    Ingest(zarr_group="fcst", search=":(?:PRATE):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)")
+    Ingest(
+        zarr_group="avg/",
+        search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
+    )
 ]
 #############
 
 MODAL_IMAGE = (
-    # Image.micromamba(python_version="3.11")
     Image.debian_slim(python_version="3.11")
     .apt_install("libglib2.0-dev", "curl")
     .pip_install(
         "arraylake",
         "certifi",
         "cfgrib",
-        # "ecmwflibs==0.5.1",
-        # "eccodes",
         "dask",
         "fsspec",
         "herbie-data",
@@ -52,8 +54,8 @@ MODAL_IMAGE = (
         "xarray",
         "pydantic-core==2.18.2",
         "pydantic==2.7.1",
+        "tenacity",
         "fastapi>=0.108",
-        # channels=["conda-forge"],
     )
     .pip_install("eccodes", "ecmwflibs")
     .env(
@@ -76,17 +78,23 @@ MODAL_FUNCTION_KWARGS = dict(
 #############
 
 
-def backfill(model, *, store, since: TimestampLike, till: TimestampLike | None = None):
-    group = GROUP
+@app.function(**MODAL_FUNCTION_KWARGS)
+def backfill(
+    ingest: Ingest,
+    *,
+    model: ForecastModel,
+    store,
+    since: TimestampLike,
+    till: TimestampLike | None = None,
+):
+    write_times(model=model, store=store, since=since, till=till, ingest=ingest, mode="w")
 
-    write_times(model=model, store=store, since=since, till=till, group=group, mode="w")
 
-
-def update(model, store):
+@app.function(**MODAL_FUNCTION_KWARGS)
+def update(ingest: Ingest, model: ForecastModel, store):
     import arraylake as al
 
-    # TODO: ???
-    group = GROUP
+    group = ingest.zarr_group
 
     if isinstance(store, al.repo.ArraylakeStore):
         # fastpath
@@ -94,28 +102,63 @@ def update(model, store):
     else:
         instore = xr.open_zarr(store, group=group)
 
+    latest = model.latest()
+    if (
+        # already ingested
+        pd.Timestamp(instore.time[slice(-1, None)].data[0]) == latest.date
+        # data not ready yet
+        # TODO: this probably needs to be better
+        or len(latest.inventory(ingest.search)) == 1
+    ):
+        logger.info("No new data.")
+        return
+
     since = (
         datetime.combine(instore.time[-1].dt.date.item(), instore.time[-1].dt.time.item())
         + model.update_freq
     )
 
-    logger.info(f"Updating for data since {since}")
+    logger.info("Updating for data since {}".format(since))
 
     write_times(
         model=model,
         store=store,
         since=since,
         till=None,
-        group=group,
         mode="a-",
-        append_dim="time",
+        append_dim=model.runtime_dim,
+        ingest=ingest,
     )
 
 
-def write_times(*, model, store, since, till=None, **write_kwargs):
+def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwargs):
+    """
+    Writes data for a range of times to the store.
+
+    First initializes (if ``mode="w"`` in ``write_kwargs``) or resizes the store
+    (if ``mode="a"`` in ``write_kwargs``) by writing a "schema" dataset of the right
+    shape. Then begins a distributed region write to that new section of the dataset.
+
+    Parameters
+    ----------
+    model: ForecastModel
+    store:
+        Zarr store
+    since: Timestamp
+       Anything that can be cast to a pandas.Timestamp
+    till: Timestamp
+       Anything that can be cast to a pandas.Timestamp
+    ingest: Ingest
+       Contains  ``search`` string for variables to write to the
+       specified group ``zarr_group`` of the ``store``.
+    **write_kwargs:
+       Extra kwargs for writing the schema.
+    """
     import arraylake as al
 
     import lib
+
+    group = ingest.zarr_group
 
     available_times = model.get_available_times(since, till)
     logger.info(f"Available times are {available_times}")
@@ -124,23 +167,21 @@ def write_times(*, model, store, since, till=None, **write_kwargs):
     logger.info(f"schema {schema}")
 
     logger.info("Writing schema")
-    schema.to_zarr(store, **write_kwargs, compute=False)
+    schema.to_zarr(store, group=group, **write_kwargs, compute=False)
 
     # figure out total number of timestamps in store.
-    ntimes = zarr.open_group(store)[f"{GROUP}/time"].size
-
-    # TODO: not really needed?
-    # if isinstance(store, al.repo.ArraylakeStore):
-    #    store._repo.commit(f"Initialized for update since {since!r}")
+    ntimes = zarr.open_group(store)[f"{group}/time"].size
 
     # TODO: loop over vars? Or set this some other way.
     chunksizes = dict(zip(schema.prate.dims, schema.prate.encoding["chunks"]))
 
-    logger.info("Starting write job.")
+    logger.info("Starting write job for {}.".format(ingest.search))
     all_jobs = (
         lib.Job(runtime=time, steps=steps, ingest=ingest_group)
         for time, steps, ingest_group in itertools.product(
-            available_times, lib.batched(model.step, n=chunksizes["step"]), INGEST_GROUPS
+            available_times,
+            lib.batched(model.step, n=chunksizes["step"]),
+            [ingest],
         )
     )
 
@@ -149,7 +190,6 @@ def write_times(*, model, store, since, till=None, **write_kwargs):
             all_jobs,
             kwargs={
                 "model": model,
-                "group": write_kwargs.get("group", None),
                 "schema": schema,
                 "store": store,
                 "ntimes": ntimes,
@@ -157,14 +197,16 @@ def write_times(*, model, store, since, till=None, **write_kwargs):
         )
     )
 
-    logger.info("Finished write job.")
+    logger.info("Finished write job for {}.".format(ingest))
     if isinstance(store, al.repo.ArraylakeStore):
-        since = pd.Timestamp(since).floor(model.update_freq)
-        store._repo.commit(f"Finished update since {since!r}")
+        store._repo.commit(
+            f"Finished update since {available_times[0]!r}, till {available_times[-1]!r}."
+        )
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=900)
-def write_herbie(job, *, model, group, schema, store, ntimes=None):
+@tenacity.retry(reraise=True, stop=tenacity.stop_after_attempt(3))
+def write_herbie(job, *, model, schema, store, ntimes=None):
     import time
 
     import numpy as np
@@ -172,12 +214,13 @@ def write_herbie(job, *, model, group, schema, store, ntimes=None):
     tic = time.time()
 
     logger.debug("Processing job {}".format(job))
-    # chunksizes = dict(zip(schema.prate.dims, schema.prate.encoding["chunks"]))
     try:
         ds = (
             model.open_herbie(job)
+            # We *should* only be processing in a single Zarr group chunksize
+            # number of steps
             .chunk(step=-1)
-            # TODO: transpose_like
+            # TODO: transpose_like(schema)
             .transpose("time", "step", "latitude", "longitude")
         )
 
@@ -214,72 +257,15 @@ def write_herbie(job, *, model, group, schema, store, ntimes=None):
             "time": time_region,
         }
 
-        logger.info(f"Writing job {job} to region {region}")
+        logger.info("Writing job {} to region {}".format(job, region))
 
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
-        ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
+        ds.drop_vars(ds.coords).to_zarr(store, group=job.ingest.zarr_group, region=region)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
 
     logger.info("Finished job {}. Took {} sconds".format(job, time.time() - tic))
-    return ds.step
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=900)
-def write_uri(uri, *, model, group, schema, store, ntimes=None):
-    import numpy as np
-
-    chunksizes = dict(zip(schema.prate.dims, schema.prate.encoding["chunks"]))
-    logger.info(f"Writing uri {uri}")
-    try:
-        ds = (
-            model.open_multiple_gribs(uri, **GRIB_KWARGS)
-            .chunk(step=chunksizes["step"])
-            .transpose("time", "step", "latitude", "longitude")
-        )
-
-        ##############################
-        ###### manually get region to avoid each task reading in the same vector
-        # We have optimized so that
-        # (1) length of the time dimension is passed in to each worker.
-        # (2) The timestamps we are writing are passed in `schema`
-        # (3) we know the `step` values.
-        # So we can infer `region` without making multiple trips to the store.
-        index = pd.to_timedelta(schema.indexes["step"], unit="hours")
-        step = pd.to_timedelta(ds.step.data, unit="ns")
-        istep = index.get_indexer(step)
-        if (istep == -1).any():
-            raise ValueError(f"Could not find all of step={ds.step.data!r} in {index!r}")
-        assert (np.diff(istep) == 1).all()
-
-        if ntimes is None:
-            time_region = "auto"
-        else:
-            index = schema.indexes["time"]
-            itime = index.get_indexer(ds.time.data).item()
-            if itime == -1:
-                raise ValueError(f"Could not find time={ds.time.data!r} in {index!r}")
-            ntimes -= len(index)  # existing number of timestamps
-            time_region = slice(ntimes + itime, ntimes + itime + 1)
-        #############################
-
-        region = {
-            "latitude": slice(None),
-            "longitude": slice(None),
-            "step": slice(istep[0], istep[-1] + 1),
-            "time": time_region,
-        }
-
-        logger.info(f"Writing uri {uri} to region {region}")
-
-        # Drop coordinates to avoid useless overwriting
-        # Verified that this only writes data_vars array chunks
-        ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
-    except Exception as e:
-        raise RuntimeError(f"Failed for {uri}") from e
-
-    logger.info(f"Finished uri {uri}")
     return ds.step
 
 
@@ -296,29 +282,20 @@ def gfs_ingest():
     # import arraylake as al
     # print(al.diagnostics.get_versions())
 
-    repo = lib.create_repo()
-    store = repo.store
+    # repo = lib.create_repo()
+    # store = repo.store
+    # backfill(
+    #     GFS,
+    #     store=store,
+    #     since=datetime.utcnow() - timedelta(days=7),
+    #     till=datetime.utcnow() - timedelta(days=1, hours=12),
+    # )
 
-    backfill(
-        GFS,
-        store=store,
-        since=datetime.utcnow() - timedelta(days=2),
-        till=datetime.utcnow() - timedelta(days=1, hours=12),
-    )
+    repo = lib.get_repo()
+    store = repo.store
+    list(update.map(INGEST_GROUPS, kwargs={"model": GFS, "store": store}))
 
 
 @app.local_entrypoint()
 def main():
     gfs_ingest.remote()
-    # print(check_httpx.remote())
-
-
-# @app.function(image=IMAGE)
-# def check_httpx():
-#    import httpx
-
-# import certifi
-#    return httpx.get("https://api.earthmover.io").json()
-# return certifi.where()
-# print(os.environ["SSL_CERT_DIR"])
-# return os.listdir(os.environ["SSL_CERT_DIR"])
