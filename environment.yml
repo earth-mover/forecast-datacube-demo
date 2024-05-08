@@ -1,0 +1,12 @@
+channels:
+    - conda-forge
+
+dependencies:
+    - arraylake
+    - cfgrib
+    - dask
+    - fsspec
+    - herbie
+    - s3fs
+    - xarray
+    - pydantic >2
