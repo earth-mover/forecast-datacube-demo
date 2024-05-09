@@ -169,14 +169,19 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
     # TODO: loop over vars? Or set this some other way.
     chunksizes = dict(zip(schema.prate.dims, schema.prate.encoding["chunks"]))
 
+    time_and_steps = itertools.chain(
+        *(
+            itertools.product(
+                (t,), lib.batched(model.get_steps(t - t.floor("D")), n=chunksizes[model.step_dim])
+            )
+            for t in available_times
+        )
+    )
+
     logger.info("Starting write job for {}.".format(ingest.search))
     all_jobs = (
-        lib.Job(runtime=time, steps=steps, ingest=ingest_group)
-        for time, steps, ingest_group in itertools.product(
-            available_times,
-            lib.batched(model.step, n=chunksizes["step"]),
-            [ingest],
-        )
+        lib.Job(runtime=time, steps=steps, ingest=ingest)
+        for ingest, (time, steps) in itertools.product([ingest], time_and_steps)
     )
 
     list(

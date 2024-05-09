@@ -7,7 +7,6 @@ import fsspec
 import numpy as np
 import pandas as pd
 import xarray as xr
-import zarr
 
 import lib
 from lib import ForecastModel, open_single_grib
@@ -20,20 +19,33 @@ logger = lib.get_logger()
 # logger.addHandler(console_handler)
 
 
+class HRRR(ForecastModel):
+    name = "hrrr"
+    runtime_dim = "time"
+    step_dim = "step"
+    expand_dims = ("step", "time")
+    drop_vars = ("valid_time",)
+    update_freq = timedelta(hours=1)
+
+    def get_steps(self, time: pd.Timestamp) -> Iterable:
+        # 48 hour forecasts every 6 hours, 18 hour forecasts otherwise
+        if (time - time.floor("D")) % timedelta(hours=6) == timedelta(hours=0):
+            return range(48)
+        else:
+            return range(18)
+
 
 class GFS(ForecastModel):
     # Product specific kwargs
+    name = "gfs"
     runtime_dim = "time"
     step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
     update_freq = timedelta(hours=6)
-    step = list(range(0, 120)) + list(range(120, 385, 3))
 
-    def latest(self):
-        from herbie import HerbieLatest
-
-        return HerbieLatest(model="gfs")
+    def get_steps(self, time: pd.Timestamp) -> Iterable:
+        return list(range(0, 120)) + list(range(120, 385, 3))
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
         """
@@ -132,19 +144,19 @@ class GFS(ForecastModel):
         schema["step"] = ("step", pd.to_timedelta(self.step, unit="hours"))
 
         schema["longitude"].encoding.update(
-            optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
+            lib.optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
         )
         schema["longitude"].encoding["chunks"] = schema.longitude.shape
 
         schema["latitude"].encoding.update(
-            optimize_coord_encoding(schema["longitude"].data, dx=0.25, is_regular=True)
+            lib.optimize_coord_encoding(schema["longitude"].data, dx=0.25, is_regular=True)
         )
         schema["latitude"].encoding["chunks"] = schema.latitude.shape
 
-        schema["time"].encoding.update(create_time_encoding())
+        schema["time"].encoding.update(lib.create_time_encoding())
 
         schema["step"].encoding.update(
-            optimize_coord_encoding(
+            lib.optimize_coord_encoding(
                 (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
             )
         )
@@ -158,61 +170,3 @@ class GFS(ForecastModel):
         schema["prate"] = (dims, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
         schema["prate"].encoding["chunks"] = chunks
         return schema
-
-    def get_available_times(self, since, till=None):
-        if till is None:
-            till = datetime.utcnow()
-        since = pd.Timestamp(since).floor(self.update_freq)
-        till = pd.Timestamp(till).floor(self.update_freq)
-        available_times = pd.date_range(since, till, inclusive="left", freq=self.update_freq)
-        if available_times.empty:
-            raise RuntimeError(f"No data available for time range {since!r} to {till!r}")
-        return available_times
-
-
-def optimize_coord_encoding(values, dx, is_regular=False):
-    if is_regular:
-        dx_all = np.diff(values)
-        np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
-
-    offset_codec = zarr.FixedScaleOffset(
-        offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
-    )
-    delta_codec = zarr.Delta("i8", "i2")
-    compressor = zarr.Blosc(cname="zstd")
-
-    enc0 = offset_codec.encode(values)
-    if is_regular:
-        # everything should be offset by 1 at this point
-        np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
-    enc1 = delta_codec.encode(enc0)
-    # now we should be able to compress the shit out of this
-    enc2 = compressor.encode(enc1)
-    decoded = offset_codec.decode(delta_codec.decode(compressor.decode(enc2)))
-
-    # will produce numerical precision differences
-    np.testing.assert_equal(values, decoded)
-    # np.testing.assert_allclose(values, decoded)
-
-    return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
-
-
-def create_time_encoding() -> dict:
-    """
-    Creates a time encoding.
-    """
-    from xarray.conventions import encode_cf_variable
-
-    time = xr.Variable(
-        data=pd.date_range("1970-04-01", "2035-05-01", freq="6h"),
-        dims=("time",),
-    )
-    encoded = encode_cf_variable(time)
-    time_values = encoded.data
-    compression = optimize_coord_encoding(time_values, dx=6, is_regular=True)
-
-    encoding = encoded.encoding
-    encoding.update(compression)
-    encoding["chunks"] = (120,)
-
-    return encoding
