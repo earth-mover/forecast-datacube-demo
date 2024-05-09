@@ -17,8 +17,7 @@ import zarr
 def get_logger():
     logger = logging.getLogger("modal_app")
     logger.setLevel(logging.INFO)
-    console_handler = logging.StreamHandler()
-    logger.addHandler(console_handler)
+    return logger
 
 
 logger = get_logger()

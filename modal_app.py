@@ -17,7 +17,10 @@ from modal import App, Image
 
 from lib import ForecastModel, Ingest, get_logger
 
+import logging
 logger = get_logger()
+console_handler = logging.StreamHandler()
+logger.addHandler(console_handler)
 
 TimestampLike = Any
 
@@ -81,6 +84,7 @@ def backfill(
     since: TimestampLike,
     till: TimestampLike | None = None,
 ):
+    logger.info("backfill: Calling write_times for ingest {}".format(ingest))
     write_times(model=model, store=store, since=since, till=till, ingest=ingest, mode="w")
 
 
@@ -112,7 +116,7 @@ def update(ingest: Ingest, model: ForecastModel, store):
         + model.update_freq
     )
 
-    logger.info("Updating for data since {}".format(since))
+    logger.info("update: Calling write_times for data since {}".format(since))
 
     write_times(
         model=model,
@@ -155,7 +159,7 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
     group = ingest.zarr_group
 
     available_times = model.get_available_times(since, till)
-    logger.info(f"Available times are {available_times}")
+    logger.info("Available times are {} for ingest {}".format(available_times, ingest))
 
     schema = model.create_schema(times=available_times)
     logger.info(f"schema {schema}")
