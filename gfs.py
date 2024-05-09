@@ -13,6 +13,9 @@ from lib import ForecastModel, open_single_grib
 
 logger = lib.get_logger()
 
+
+RENAME_VARS = {"UGRD": "u", "VGRD": "v"}
+
 # logger = logging.getLogger("herbie")
 # logger.setLevel(logging.DEBUG)
 # console_handler = logging.StreamHandler()
@@ -25,9 +28,11 @@ class HRRR(ForecastModel):
     step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
+    dim_order = ("time", "step", "y", "x")
     update_freq = timedelta(hours=1)
 
     def get_lat_lon(self):
+        """Generate lat, lon for HRRR grid. Used for schema."""
         # GRIB_gridType : lambert
         # GRIB_DxInMetres : 3000.0
         # GRIB_DyInMetres : 3000.0
@@ -95,13 +100,13 @@ class HRRR(ForecastModel):
         schema["step"].encoding["units"] = "hours"
 
         # TODO: optimize encoding for latitude, longitude
-        lat, lon = self.get_latlon()
-        schema["longitude"] = (
+        lat, lon = self.get_lat_lon()
+        schema.coords["longitude"] = (
             ("y", "x"),
             lon,
             {"standard_name": "longitude", "units": "degrees_east"},
         )
-        schema["latitude"] = (
+        schema.coords["latitude"] = (
             ("y", "x"),
             lat,
             {"standard_name": "latitude", "units": "degrees_north"},
@@ -110,8 +115,9 @@ class HRRR(ForecastModel):
         dims = ("time", "step", "y", "x")
         shape = tuple(schema.sizes[dim] for dim in dims)
         # TODO: Make this configurable
-        chunks = (1, 24, 120, 360)
-        for name in self.get_data_vars():
+        chunks = (1, 6, 120, 360)
+        for name in self.get_data_vars(search):
+            name = RENAME_VARS.get(name, name).lower()
             schema[name] = (dims, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
             schema[name].encoding["write_empty_chunks"] = False
@@ -126,6 +132,7 @@ class GFS(ForecastModel):
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
     update_freq = timedelta(hours=6)
+    dim_order = ("time", "step", "latitude", "longitude")
 
     def get_steps(self, time: pd.Timestamp) -> Iterable:
         return list(range(0, 120)) + list(range(120, 385, 3))

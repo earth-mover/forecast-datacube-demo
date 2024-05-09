@@ -1,3 +1,4 @@
+import contextlib
 import itertools
 import logging
 import random
@@ -31,6 +32,7 @@ def random_string(n):
 class Ingest:
     """Maps a search string to a Zarr group in the store to write to."""
 
+    product: str
     zarr_group: str
     search: str
 
@@ -84,7 +86,8 @@ class ForecastModel(ABC):
         FH = FastHerbie(
             DATES=[job.runtime],
             fxx=list(job.steps),
-            model="gfs",
+            model=self.name,
+            product=job.ingest.product,
         )
         logger.debug("Searching {}".format(job.ingest.search))
         paths = FH.download(search=job.ingest.search)
@@ -134,20 +137,21 @@ def open_single_grib(
     return ds
 
 
-def get_repo():
+def get_repo(name):
     import arraylake as al
 
     client = al.Client()
-    return client.get_or_create_repo("earthmover-demos/gfs")
+    return client.get_or_create_repo(f"earthmover-demos/{name}")
 
 
-def create_repo():
+def create_repo(name: str):
     import arraylake as al
 
     client = al.Client()
-    client.delete_repo("earthmover-demos/gfs", imsure=True, imreallysure=True)
+    with contextlib.suppress(ValueError):
+        client.delete_repo(f"earthmover-demos/{name}", imsure=True, imreallysure=True)
 
-    return client.create_repo("earthmover-demos/gfs")
+    return client.create_repo(f"earthmover-demos/{name}")
 
 
 def optimize_coord_encoding(values, dx, is_regular=False):

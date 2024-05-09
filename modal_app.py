@@ -5,7 +5,8 @@
 
 
 import itertools
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 import modal
@@ -17,7 +18,6 @@ from modal import App, Image
 
 from lib import ForecastModel, Ingest, get_logger
 
-import logging
 logger = get_logger()
 console_handler = logging.StreamHandler()
 logger.addHandler(console_handler)
@@ -30,10 +30,15 @@ app = App("example-forecast-ingest")
 #############
 ##### TODO:
 INGEST_GROUPS = [
+    # Ingest(
+    #    zarr_group="avg/",
+    #    search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
+    # ),
     Ingest(
-        zarr_group="avg/",
-        search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
-    )
+        product="sfc",
+        zarr_group="fcst/",
+        search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
+    ),
 ]
 #############
 
@@ -161,7 +166,7 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
     available_times = model.get_available_times(since, till)
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
 
-    schema = model.create_schema(times=available_times)
+    schema = model.create_schema(times=available_times, search=ingest.search)
     logger.info(f"schema {schema}")
 
     logger.info("Writing schema")
@@ -170,8 +175,9 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
     # figure out total number of timestamps in store.
     ntimes = zarr.open_group(store)[f"{group}/time"].size
 
-    # TODO: loop over vars? Or set this some other way.
-    chunksizes = dict(zip(schema.prate.dims, schema.prate.encoding["chunks"]))
+    # TODO: set this some other way
+    var = next(iter(schema.data_vars))
+    chunksizes = dict(zip(schema[var].dims, schema[var].encoding["chunks"]))
 
     time_and_steps = itertools.chain(
         *(
@@ -224,7 +230,7 @@ def write_herbie(job, *, model, schema, store, ntimes=None):
             # number of steps
             .chunk(step=-1)
             # TODO: transpose_like(schema)
-            .transpose("time", "step", "latitude", "longitude")
+            .transpose(*model.dim_order)
         )
 
         ##############################
@@ -254,11 +260,10 @@ def write_herbie(job, *, model, schema, store, ntimes=None):
         #############################
 
         region = {
-            "latitude": slice(None),
-            "longitude": slice(None),
             "step": slice(istep[0], istep[-1] + 1),
             "time": time_region,
         }
+        region.update({dim: slice(None) for dim in model.dim_order if dim not in region})
 
         logger.info("Writing job {} to region {}".format(job, region))
 
@@ -273,32 +278,39 @@ def write_herbie(job, *, model, schema, store, ntimes=None):
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
-def gfs_ingest():
+def ingest():
     import gfs
     import lib
 
     # print("This code is running on a remote machine.")
-    GFS = gfs.GFS()
+    # GFS = gfs.GFS()
+    model = gfs.HRRR()
 
     # import pydantic
     # print(pydantic.__version__)
     # import arraylake as al
     # print(al.diagnostics.get_versions())
 
-    # repo = lib.create_repo()
-    # store = repo.store
-    # backfill(
-    #     GFS,
-    #     store=store,
-    #     since=datetime.utcnow() - timedelta(days=7),
-    #     till=datetime.utcnow() - timedelta(days=1, hours=12),
-    # )
-
-    repo = lib.get_repo()
+    repo = lib.create_repo(model.name)
     store = repo.store
-    list(update.map(INGEST_GROUPS, kwargs={"model": GFS, "store": store}))
+    # breakpoint()
+    list(
+        backfill.map(
+            INGEST_GROUPS,
+            kwargs={
+                "model": model,
+                "store": store,
+                "since": datetime.utcnow() - timedelta(days=3),
+                "till": datetime.utcnow() - timedelta(days=1, hours=12),
+            },
+        )
+    )
+
+    # repo = lib.get_repo(model.name)
+    # store = repo.store
+    # list(update.map(INGEST_GROUPS, kwargs={"model": model, "store": store}))
 
 
 @app.local_entrypoint()
 def main():
-    gfs_ingest.remote()
+    ingest.remote()
