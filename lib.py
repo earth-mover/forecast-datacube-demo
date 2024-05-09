@@ -49,6 +49,21 @@ class ForecastModel(ABC):
         """Get available forecast steps or 'fxx' for this model run timestamp."""
         pass
 
+    def get_data_vars(self, search: str) -> Iterable[str]:
+        """
+        Get available data_vars for the schema.
+        """
+        from herbie import Herbie
+
+        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        data_vars = [
+            name
+            for name in H.inventory(search).variable.unique()
+            # funny unknown HRRR variable
+            if not name.startswith("var discipline=")
+        ]
+        return data_vars
+
     def get_available_times(self, since, till=None):
         if till is None:
             till = datetime.utcnow()
