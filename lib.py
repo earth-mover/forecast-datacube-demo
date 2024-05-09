@@ -5,7 +5,7 @@ import random
 import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Hashable, Iterable
 
 import fsspec
@@ -181,19 +181,19 @@ def optimize_coord_encoding(values, dx, is_regular=False):
     return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
 
 
-def create_time_encoding() -> dict:
+def create_time_encoding(freq: timedelta) -> dict:
     """
     Creates a time encoding.
     """
     from xarray.conventions import encode_cf_variable
 
     time = xr.Variable(
-        data=pd.date_range("1970-04-01", "2035-05-01", freq="6h"),
+        data=pd.date_range("2000-04-01", "2035-05-01", freq=freq),
         dims=("time",),
     )
     encoded = encode_cf_variable(time)
     time_values = encoded.data
-    compression = optimize_coord_encoding(time_values, dx=6, is_regular=True)
+    compression = optimize_coord_encoding(time_values, dx=freq.seconds / 3600, is_regular=True)
 
     encoding = encoded.encoding
     encoding.update(compression)

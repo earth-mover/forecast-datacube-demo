@@ -88,7 +88,7 @@ class HRRR(ForecastModel):
         schema = xr.Dataset()
 
         schema["time"] = ("time", times)
-        schema["time"].encoding.update(lib.create_time_encoding())
+        schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
 
         schema["step"] = ("step", pd.to_timedelta(np.arange(48), unit="hours"))
         schema["step"].encoding.update(
@@ -243,7 +243,7 @@ class GFS(ForecastModel):
         )
         schema["latitude"].encoding["chunks"] = schema.latitude.shape
 
-        schema["time"].encoding.update(lib.create_time_encoding())
+        schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
 
         schema["step"].encoding.update(
             lib.optimize_coord_encoding(
