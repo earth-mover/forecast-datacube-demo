@@ -121,7 +121,7 @@ class GFS(ForecastModel):
         schema["latitude"] = np.arange(90, -90.1, -0.25)
         schema["longitude"] = np.arange(0, 360, 0.25)
         schema["time"] = ("time", times)
-        schema["step"] = ("step", pd.to_timedelta(self.step, unit="hours"))
+        schema["step"] = ("step", pd.to_timedelta(self.get_steps(), unit="hours"))
 
         schema["longitude"].encoding.update(
             lib.optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
