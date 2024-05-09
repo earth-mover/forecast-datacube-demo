@@ -1,4 +1,3 @@
-import logging
 import time
 from datetime import datetime, timedelta
 from typing import Hashable, Iterable
@@ -10,15 +9,16 @@ import pandas as pd
 import xarray as xr
 import zarr
 
+import lib
 from lib import ForecastModel, open_single_grib
+
+logger = lib.get_logger()
 
 # logger = logging.getLogger("herbie")
 # logger.setLevel(logging.DEBUG)
 # console_handler = logging.StreamHandler()
 # logger.addHandler(console_handler)
 
-logger = logging.getLogger("modal_app")
-logger.setLevel(logging.INFO)
 
 
 class GFS(ForecastModel):
@@ -129,13 +129,7 @@ class GFS(ForecastModel):
         schema["latitude"] = np.arange(90, -90.1, -0.25)
         schema["longitude"] = np.arange(0, 360, 0.25)
         schema["time"] = ("time", times)
-        schema["step"] = (
-            "step",
-            pd.to_timedelta(
-                self.step,
-                unit="hours",
-            ),
-        )
+        schema["step"] = ("step", pd.to_timedelta(self.step, unit="hours"))
 
         schema["longitude"].encoding.update(
             optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
@@ -161,10 +155,7 @@ class GFS(ForecastModel):
         dims = ("time", "step", "latitude", "longitude")
         shape = tuple(schema.sizes[dim] for dim in dims)
         chunks = (1, 24, 120, 360)
-        schema["prate"] = (
-            dims,
-            dask.array.ones(shape, chunks=chunks, dtype=np.float32),
-        )
+        schema["prate"] = (dims, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
         schema["prate"].encoding["chunks"] = chunks
         return schema
 

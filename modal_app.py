@@ -1,11 +1,10 @@
 # TODO:
 # 1. figure out best pattern for shared imports
 # 2. Allow adding new variables to existing group with mode="a".
-# 3.
+# 3. Schema / chunksize setting
 
 
 import itertools
-import logging
 from datetime import datetime
 from typing import Any
 
@@ -16,12 +15,9 @@ import xarray as xr
 import zarr
 from modal import App, Image
 
-from lib import ForecastModel, Ingest
+from lib import ForecastModel, Ingest, get_logger
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-console_handler = logging.StreamHandler()
-logger.addHandler(console_handler)
+logger = get_logger()
 
 TimestampLike = Any
 
@@ -30,8 +26,6 @@ app = App("example-forecast-ingest")
 
 #############
 ##### TODO:
-GRIB_KWARGS = dict(filter_by_keys={"shortName": "prate", "stepType": "avg"})
-MAX_URLS = 4
 INGEST_GROUPS = [
     Ingest(
         zarr_group="avg/",

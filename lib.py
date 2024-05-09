@@ -9,8 +9,15 @@ import fsspec
 import pandas as pd
 import xarray as xr
 
-logger = logging.getLogger("modal_app")
-logger.setLevel(logging.INFO)
+
+def get_logger():
+    logger = logging.getLogger("modal_app")
+    logger.setLevel(logging.INFO)
+    console_handler = logging.StreamHandler()
+    logger.addHandler(console_handler)
+
+
+logger = get_logger()
 
 
 def random_string(n):
