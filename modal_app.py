@@ -89,6 +89,7 @@ def backfill(
     till: TimestampLike | None = None,
 ):
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
+    till = till + model.update_freq
     write_times(model=model, store=store, since=since, till=till, ingest=ingest, mode="w")
 
 
@@ -106,11 +107,8 @@ def update(ingest: Ingest, model: ForecastModel, store):
 
     latest = model.latest()
     latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
-    if (
+    if latest_in_store == latest.date:
         # already ingested
-        latest_in_store == latest.date
-        # data not ready yet
-    ):
         logger.info(
             "No new data. Latest data {}; Latest in-store: {}".format(latest.date, latest_in_store)
         )
