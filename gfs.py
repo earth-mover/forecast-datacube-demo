@@ -73,10 +73,11 @@ class HRRR(ForecastModel):
 
     def get_steps(self, time: pd.Timestamp) -> Iterable:
         # 48 hour forecasts every 6 hours, 18 hour forecasts otherwise
+        # add one for the "analysis"
         if (time - time.floor("D")) % timedelta(hours=6) == timedelta(hours=0):
-            return range(48)
+            return range(49)
         else:
-            return range(18)
+            return range(19)
 
     def create_schema(self, search: str, times=None) -> xr.Dataset:
         """
@@ -90,7 +91,7 @@ class HRRR(ForecastModel):
         schema["time"] = ("time", times)
         schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
 
-        schema["step"] = ("step", pd.to_timedelta(np.arange(48), unit="hours"))
+        schema["step"] = ("step", pd.to_timedelta(np.arange(49), unit="hours"))
         schema["step"].encoding.update(
             lib.optimize_coord_encoding(
                 (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
