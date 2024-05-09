@@ -11,7 +11,6 @@ from typing import Any
 
 import modal
 import pandas as pd
-import tenacity
 import xarray as xr
 import zarr
 from modal import App, Image
@@ -56,7 +55,6 @@ MODAL_IMAGE = (
         "xarray",
         "pydantic-core==2.18.2",
         "pydantic==2.7.1",
-        "tenacity",
         "fastapi>=0.108",
     )
     .pip_install("eccodes", "ecmwflibs")
@@ -74,6 +72,7 @@ MODAL_FUNCTION_KWARGS = dict(
         modal.Secret.from_name("deepak-arraylake-demos-token"),
     ],
     mounts=[modal.Mount.from_local_python_packages("lib", "gfs")],
+    retries=modal.Retries(max_retries=3),
 )
 
 
@@ -213,8 +212,7 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
         )
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=900)
-@tenacity.retry(reraise=True, stop=tenacity.stop_after_attempt(3))
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=240)
 def write_herbie(job, *, model, schema, store, ntimes=None):
     import time
 

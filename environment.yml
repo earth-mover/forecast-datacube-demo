@@ -8,6 +8,5 @@ dependencies:
     - fsspec
     - herbie
     - s3fs
-    - tenacity
     - pydantic >2
     - xarray
