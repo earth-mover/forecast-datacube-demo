@@ -105,14 +105,15 @@ def update(ingest: Ingest, model: ForecastModel, store):
         instore = xr.open_zarr(store, group=group)
 
     latest = model.latest()
+    latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
     if (
         # already ingested
-        pd.Timestamp(instore.time[slice(-1, None)].data[0]) == latest.date
+        latest_in_store == latest.date
         # data not ready yet
-        # TODO: this probably needs to be better
-        or len(latest.inventory(ingest.search)) == 1
     ):
-        logger.info("No new data.")
+        logger.info(
+            "No new data. Latest data {}; Latest in-store: {}".format(latest.date, latest_in_store)
+        )
         return
 
     since = (
@@ -120,13 +121,32 @@ def update(ingest: Ingest, model: ForecastModel, store):
         + model.update_freq
     )
 
-    logger.info("update: Calling write_times for data since {}".format(since))
+    num_latest = len(latest.inventory(ingest.search))
+    if since == latest.date and num_latest == 1:
+        logger.info(
+            "Skipping since latest data not complete. Latest data {}; Latest in-store: {}".format(
+                latest.date, latest_in_store
+            )
+        )
+        return
+
+    # Our interval is left-closed [since, till) so adjust if we know latest data are present
+    till = latest.date
+    if num_latest != 1:
+        till += model.update_freq
+    else:
+        logger.info(
+            "Latest data not complete but there is data to ingest. "
+            " Latest data {}; Latest in-store: {}".format(latest.date, latest_in_store)
+        )
+
+    logger.info("update: Calling write_times for data since {} till {}".format(since, till))
 
     write_times(
         model=model,
         store=store,
         since=since,
-        till=None,
+        till=till,
         mode="a-",
         append_dim=model.runtime_dim,
         ingest=ingest,
