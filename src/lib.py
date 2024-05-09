@@ -14,6 +14,8 @@ import pandas as pd
 import xarray as xr
 import zarr
 
+RENAME_VARS = {"UGRD": "u", "VGRD": "v"}
+
 
 def get_logger():
     logger = logging.getLogger("modal_app")

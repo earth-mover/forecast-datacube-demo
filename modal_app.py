@@ -3,19 +3,22 @@
 # 2. Allow adding new variables to existing group with mode="a".
 # 3. Schema / chunksize setting
 
-
 import itertools
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
+import arraylake as al
 import modal
+import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
 from modal import App, Image
 
-from lib import ForecastModel, Ingest, get_logger
+from src import lib, models
+from src.lib import ForecastModel, Ingest, get_logger
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -29,15 +32,16 @@ app = App("example-forecast-ingest")
 #############
 ##### TODO:
 INGEST_GROUPS = [
-    # Ingest(
-    #    zarr_group="avg/",
-    #    search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
-    # ),
     Ingest(
-        product="sfc",
-        zarr_group="fcst/",
-        search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
+        product=None,
+        zarr_group="avg/",
+        search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
     ),
+    # Ingest(
+    #     product="sfc",
+    #     zarr_group="fcst/",
+    #     search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
+    # ),
 ]
 #############
 
@@ -71,7 +75,7 @@ MODAL_FUNCTION_KWARGS = dict(
         modal.Secret.from_name("deepak-aws-secret"),
         modal.Secret.from_name("deepak-arraylake-demos-token"),
     ],
-    mounts=[modal.Mount.from_local_python_packages("lib", "gfs")],
+    mounts=[modal.Mount.from_local_python_packages("src")],
     retries=modal.Retries(max_retries=3),
 )
 
@@ -95,8 +99,6 @@ def backfill(
 
 @app.function(**MODAL_FUNCTION_KWARGS)
 def update(ingest: Ingest, model: ForecastModel, store):
-    import arraylake as al
-
     group = ingest.zarr_group
 
     if isinstance(store, al.repo.ArraylakeStore):
@@ -174,10 +176,6 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
     **write_kwargs:
        Extra kwargs for writing the schema.
     """
-    import arraylake as al
-
-    import lib
-
     group = ingest.zarr_group
 
     available_times = model.get_available_times(since, till)
@@ -232,10 +230,6 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=240)
 def write_herbie(job, *, model, schema, store, ntimes=None):
-    import time
-
-    import numpy as np
-
     tic = time.time()
 
     logger.debug("Processing job {}".format(job))
@@ -295,21 +289,22 @@ def write_herbie(job, *, model, schema, store, ntimes=None):
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def ingest():
-    import gfs
-    import lib
-
     # print("This code is running on a remote machine.")
-    # GFS = gfs.GFS()
-    model = gfs.HRRR()
+    # GFS = models.GFS()
+    # model = models.HRRR()
 
     # import pydantic
     # print(pydantic.__version__)
     # import arraylake as al
     # print(al.diagnostics.get_versions())
+    pass
 
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
+def hrrr_backfill():
+    model = models.get_model("hrrr")
     repo = lib.create_repo(model.name)
     store = repo.store
-    # breakpoint()
     list(
         backfill.map(
             INGEST_GROUPS,
@@ -322,11 +317,35 @@ def ingest():
         )
     )
 
-    # repo = lib.get_repo(model.name)
-    # store = repo.store
-    # list(update.map(INGEST_GROUPS, kwargs={"model": model, "store": store}))
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
+def gfs_backfill():
+    model = models.get_model("gfs")
+    repo = lib.create_repo(model.name)
+    store = repo.store
+    list(
+        backfill.map(
+            INGEST_GROUPS,
+            kwargs={
+                "model": model,
+                "store": store,
+                "since": datetime.utcnow() - timedelta(days=3),
+                "till": datetime.utcnow() - timedelta(days=1, hours=12),
+            },
+        )
+    )
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
+def hrrr_update():
+    model = models.get_model("hrrr")
+    repo = lib.get_repo(model.name)
+    store = repo.store
+    list(update.map(INGEST_GROUPS, kwargs={"model": model, "store": store}))
 
 
 @app.local_entrypoint()
 def main():
-    ingest.remote()
+    # ingest.remote()
+    # hrrr_update.remote()
+    gfs_backfill.remote()
