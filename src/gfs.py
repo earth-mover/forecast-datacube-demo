@@ -121,7 +121,7 @@ class GFS(ForecastModel):
         schema["latitude"] = np.arange(90, -90.1, -0.25)
         schema["longitude"] = np.arange(0, 360, 0.25)
         schema["time"] = ("time", times)
-        schema["step"] = ("step", pd.to_timedelta(self.get_steps(), unit="hours"))
+        schema["step"] = ("step", pd.to_timedelta(self.get_steps(datetime.utcnow()), unit="hours"))
 
         schema["longitude"].encoding.update(
             lib.optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
@@ -143,7 +143,7 @@ class GFS(ForecastModel):
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
 
-        data_vars = self.get_data_vars()
+        data_vars = self.get_data_vars(search)
         # TODO: Make this configurable
         dims = ("time", "step", "latitude", "longitude")
         shape = tuple(schema.sizes[dim] for dim in dims)

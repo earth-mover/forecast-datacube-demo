@@ -35,7 +35,7 @@ INGEST_GROUPS = [
     Ingest(
         product=None,
         zarr_group="avg/",
-        search=":(?:PRATE|GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
+        search=":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
     ),
     # Ingest(
     #     product="sfc",
