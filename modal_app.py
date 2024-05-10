@@ -89,7 +89,7 @@ def backfill(
     till: TimestampLike | None = None,
 ):
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
-    model = models.get_model(ingest.model_name)
+    model = models.get_model(ingest.model)
     till = till + model.update_freq
     write_times(since=since, till=till, ingest=ingest, mode="w")
 
@@ -140,13 +140,7 @@ def update(ingest: Ingest, model: ForecastModel, store):
 
     logger.info("update: Calling write_times for data since {} till {}".format(since, till))
 
-    write_times(
-        since=since,
-        till=till,
-        mode="a-",
-        append_dim=model.runtime_dim,
-        ingest=ingest,
-    )
+    write_times(since=since, till=till, mode="a-", append_dim=model.runtime_dim, ingest=ingest)
 
 
 def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
@@ -207,15 +201,7 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
         for ingest, (time, steps) in itertools.product([ingest], time_and_steps)
     )
 
-    list(
-        write_herbie.map(
-            all_jobs,
-            kwargs={
-                "schema": schema,
-                "ntimes": ntimes,
-            },
-        )
-    )
+    list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
     logger.info("Finished write job for {}.".format(ingest))
     if isinstance(store, al.repo.ArraylakeStore):
