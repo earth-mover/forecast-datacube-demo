@@ -209,7 +209,11 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     logger.info("Finished write job for {}.".format(ingest))
     if isinstance(store, al.repo.ArraylakeStore):
         store._repo.commit(
-            f"Finished update since {available_times[0]!r}, till {available_times[-1]!r}."
+            f"""
+            Finished update: {available_times[0]!r}, till {available_times[-1]!r}.
+            Data: {ingest.model}, {ingest.product}, {ingest.search}
+            zarr_group: {ingest.zarr_group}
+            """
         )
 
 
