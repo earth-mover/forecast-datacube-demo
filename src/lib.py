@@ -6,7 +6,7 @@ import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Hashable, Iterable, Literal
+from typing import Any, Hashable, Iterable, Literal
 
 import fsspec
 import numpy as np
@@ -44,6 +44,7 @@ class Ingest:
     store: str
     zarr_group: str
     search: str
+    zarr_store: Any = None
 
 
 @dataclass
@@ -157,7 +158,7 @@ def get_zarr_store(name):
     ALPREFIX = "arraylake://"
     if name.startswith(ALPREFIX):
         client = al.Client()
-        return client.get_or_create_repo(name.strip(ALPREFIX)).store
+        return client.get_or_create_repo(name.removeprefix(ALPREFIX)).store
     return name
 
 

@@ -98,7 +98,8 @@ def backfill(
 @app.function(**MODAL_FUNCTION_KWARGS)
 def update(ingest: Ingest, model: ForecastModel, store):
     group = ingest.zarr_group
-    store = lib.get_zarr_store(ingest.store)
+    store = ingest.zarr_store
+    assert store is not None
 
     if isinstance(store, al.repo.ArraylakeStore):
         # fastpath
@@ -168,8 +169,9 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = lib.get_zarr_store(ingest.store)
+    store = ingest.zarr_store
     model = models.get_model(ingest.model)
+    assert store is not None
 
     available_times = model.get_available_times(since, till)
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
@@ -215,8 +217,11 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
 def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
 
+    ingest = job.ingest
     model = models.get_model(ingest.model)
-    store = lib.get_zarr_store(ingest.store)
+    store = ingest.zarr_store
+    group = ingest.zarr_group
+    assert store is not None
 
     logger.debug("Processing job {}".format(job))
     try:
@@ -265,7 +270,7 @@ def write_herbie(job, *, schema, ntimes=None):
 
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
-        ds.drop_vars(ds.coords).to_zarr(store, group=job.ingest.zarr_group, region=region)
+        ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
 
