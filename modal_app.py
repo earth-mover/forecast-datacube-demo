@@ -8,6 +8,7 @@ import arraylake as al
 import modal
 import numpy as np
 import pandas as pd
+import tomllib
 import xarray as xr
 import zarr
 from modal import App, Image
@@ -321,8 +322,29 @@ def gfs_update():
     list(update.map(INGEST_GROUPS))
 
 
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+def driver(*, mode, ingests, since, till):
+    if mode == "backfill":
+        list(backfill.map(ingests, kwargs={"since": since, "till": till}))
+
+    elif mode == "update":
+        list(update.map(ingests))
+
+    else:
+        raise NotImplementedError()
+
+
 @app.local_entrypoint()
 def main():
+    mode = "backfill"  # "update", or "insert"
+    since = datetime.utcnow() - timedelta(days=3)
+    till = datetime.utcnow() - timedelta(days=1, hours=12)
+
+    file = "hrrr.toml"
+    with open(file, mode="rb") as f:
+        parsed = tomllib.load(f)
+    ingests = tuple(lib.Ingest(**i) for i in parsed["ingests"])
+
     # ingest.remote()
     # hrrr_update.remote()
-    gfs_backfill.remote()
+    driver.remote(mode=mode, since=since, till=till, ingests=ingests)
