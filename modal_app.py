@@ -284,9 +284,13 @@ def write_herbie(job, *, schema, ntimes=None):
 #     list(update.map(INGEST_GROUPS))
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def driver(*, mode, ingests, since, till):
+    # Set this here for Arraylake so all tasks start with the same state
+    # for i in ingests:
+    #     i.zarr_store = lib.get_zarr_store(i.store)
+
     if mode == "backfill":
+        # TODO: assert zarr_store is not duplicated
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
     elif mode == "update":
@@ -298,15 +302,25 @@ def driver(*, mode, ingests, since, till):
 
 @app.local_entrypoint()
 def main():
-    mode = "backfill"  # "update", or "insert"
+    modal_mode = "deploy"
+    name = "HRRR update"
+    cron = "30 * * * *"
+    file = "src/configs/hrrr.toml"
+    mode = "update"  # "update", or "insert"
     since = datetime.utcnow() - timedelta(days=3)
     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
-    file = "hrrr.toml"
     with open(file, mode="rb") as f:
         parsed = tomllib.load(f)
     ingests = tuple(lib.Ingest(**i) for i in parsed["ingests"])
 
     # ingest.remote()
     # hrrr_update.remote()
-    driver.remote(mode=mode, since=since, till=till, ingests=ingests)
+    if modal_mode == "deploy":
+        driver_function = app.function(
+            driver, name=name, schedule=modal.Cron(cron), **MODAL_FUNCTION_KWARGS, timeout=3600
+        )
+        modal.runner.deploy_app(app)
+    else:
+        driver_function = app.function(driver, **MODAL_FUNCTION_KWARGS, timeout=3600)
+        driver_function.remote(mode=mode, since=since, till=till, ingests=ingests)
