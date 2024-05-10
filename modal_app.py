@@ -25,25 +25,6 @@ TimestampLike = Any
 app = App("example-forecast-ingest")
 
 
-#############
-##### TODO:
-INGEST_GROUPS = [
-    # Ingest(
-    #     model="gfs",
-    #     product=None,
-    #     zarr_group="avg/",
-    #     search=":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
-    # ),
-    Ingest(
-        model="hrrr",
-        store="arraylake://earthmover-demos/hrrr",
-        product="sfc",
-        zarr_group="sfc/fcst/",
-        search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
-    ),
-]
-#############
-
 MODAL_IMAGE = (
     Image.debian_slim(python_version="3.11")
     .apt_install("libglib2.0-dev", "curl")
@@ -75,6 +56,7 @@ MODAL_FUNCTION_KWARGS = dict(
         modal.Secret.from_name("deepak-arraylake-demos-token"),
     ],
     mounts=[modal.Mount.from_local_python_packages("src")],
+    #    concurrency_limit=1,
 )
 
 
@@ -91,7 +73,7 @@ def backfill(
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     till = till + model.update_freq
-    write_times(since=since, till=till, ingest=ingest, mode="w")
+    write_times(since=since, till=till, ingest=ingest, mode="a")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
@@ -182,6 +164,9 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     logger.info("Writing schema")
     schema.to_zarr(store, group=group, **write_kwargs, compute=False)
 
+    # if isinstance(store, al.repo.ArraylakeStore):
+    #     store._repo.commit("Write schema for ingest: {}".format(ingest))
+
     # figure out total number of timestamps in store.
     ntimes = zarr.open_group(store)[f"{group}/time"].size
 
@@ -210,8 +195,8 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     if isinstance(store, al.repo.ArraylakeStore):
         store._repo.commit(
             f"""
-            Finished update: {available_times[0]!r}, till {available_times[-1]!r}.
-            Data: {ingest.model}, {ingest.product}, {ingest.search}
+            Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
+            Data: {ingest.model}, {ingest.product}, {ingest.search}.\n
             zarr_group: {ingest.zarr_group}
             """
         )
@@ -282,53 +267,21 @@ def write_herbie(job, *, schema, ntimes=None):
     return ds.step
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
-def ingest():
-    # print("This code is running on a remote machine.")
-    # GFS = models.GFS()
-    # model = models.HRRR()
-
-    # import pydantic
-    # print(pydantic.__version__)
-    # import arraylake as al
-    # print(al.diagnostics.get_versions())
-    pass
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
-def hrrr_backfill():
-    list(
-        backfill.map(
-            INGEST_GROUPS,
-            kwargs={
-                "since": datetime.utcnow() - timedelta(days=3),
-                "till": datetime.utcnow() - timedelta(days=1, hours=12),
-            },
-        )
-    )
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
-def gfs_backfill():
-    list(
-        backfill.map(
-            INGEST_GROUPS,
-            kwargs={
-                "since": datetime.utcnow() - timedelta(days=3),
-                "till": datetime.utcnow() - timedelta(days=1, hours=12),
-            },
-        )
-    )
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
-def hrrr_update():
-    list(update.map(INGEST_GROUPS))
-
+# @app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
+# def hrrr_backfill():
+#     list(
+#         backfill.map(
+#             INGEST_GROUPS,
+#             kwargs={
+#                 "since": datetime.utcnow() - timedelta(days=3),
+#                 "till": datetime.utcnow() - timedelta(days=1, hours=12),
+#             },
+#         )
+#     )
 
 # @app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
-def gfs_update():
-    list(update.map(INGEST_GROUPS))
+# def hrrr_update():
+#     list(update.map(INGEST_GROUPS))
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
