@@ -6,7 +6,7 @@ import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Hashable, Iterable
+from typing import Hashable, Iterable, Literal
 
 import fsspec
 import numpy as np
@@ -32,15 +32,27 @@ def random_string(n):
 
 @dataclass
 class Ingest:
-    """Maps a search string to a Zarr group in the store to write to."""
+    """
+    Defines the ingestion of a bunch of GRIB variables selected
+    by the Herbie search string ``search``, from the output of
+    ``model`` and ``product``, and written to a Zarr group ``zarr_group``
+    in the Zarr store ``store``.
+    """
 
+    model: Literal["gfs", "hrrr"]
     product: str
+    store: str
     zarr_group: str
     search: str
 
 
 @dataclass
 class Job:
+    """
+    Defines an ``Ingest`` for the model start time ``runtime`` for the forecast
+    time steps ``steps``.
+    """
+
     runtime: pd.Timestamp
     steps: list[int]
     ingest: Ingest
@@ -137,6 +149,16 @@ def open_single_grib(
     if expand_dims:
         ds = ds.expand_dims(expand_dims)
     return ds
+
+
+def get_zarr_store(name):
+    import arraylake as al
+
+    ALPREFIX = "arraylake://"
+    if name.startswith(ALPREFIX):
+        client = al.Client()
+        return client.get_or_create_repo(name.strip(ALPREFIX)).store
+    return name
 
 
 def get_repo(name):

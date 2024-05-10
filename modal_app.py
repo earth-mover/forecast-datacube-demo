@@ -1,8 +1,3 @@
-# TODO:
-# 1. figure out best pattern for shared imports
-# 2. Allow adding new variables to existing group with mode="a".
-# 3. Schema / chunksize setting
-
 import itertools
 import logging
 import time
@@ -32,16 +27,19 @@ app = App("example-forecast-ingest")
 #############
 ##### TODO:
 INGEST_GROUPS = [
-    Ingest(
-        product=None,
-        zarr_group="avg/",
-        search=":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
-    ),
     # Ingest(
-    #     product="sfc",
-    #     zarr_group="fcst/",
-    #     search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
+    #     model="gfs",
+    #     product=None,
+    #     zarr_group="avg/",
+    #     search=":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)",
     # ),
+    Ingest(
+        model="hrrr",
+        store="arraylake://earthmover-demos/hrrr",
+        product="sfc",
+        zarr_group="sfc/fcst/",
+        search="DSWRF:surface:(?=anl|[0-9]* hour fcst)",
+    ),
 ]
 #############
 
@@ -87,19 +85,19 @@ MODAL_FUNCTION_KWARGS = dict(
 def backfill(
     ingest: Ingest,
     *,
-    model: ForecastModel,
-    store,
     since: TimestampLike,
     till: TimestampLike | None = None,
 ):
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
+    model = models.get_model(ingest.model_name)
     till = till + model.update_freq
-    write_times(model=model, store=store, since=since, till=till, ingest=ingest, mode="w")
+    write_times(since=since, till=till, ingest=ingest, mode="w")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
 def update(ingest: Ingest, model: ForecastModel, store):
     group = ingest.zarr_group
+    store = lib.get_zarr_store(ingest.store)
 
     if isinstance(store, al.repo.ArraylakeStore):
         # fastpath
@@ -143,8 +141,6 @@ def update(ingest: Ingest, model: ForecastModel, store):
     logger.info("update: Calling write_times for data since {} till {}".format(since, till))
 
     write_times(
-        model=model,
-        store=store,
         since=since,
         till=till,
         mode="a-",
@@ -153,7 +149,7 @@ def update(ingest: Ingest, model: ForecastModel, store):
     )
 
 
-def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwargs):
+def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     """
     Writes data for a range of times to the store.
 
@@ -177,6 +173,8 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
+    store = lib.get_zarr_store(ingest.store)
+    model = models.get_model(ingest.model)
 
     available_times = model.get_available_times(since, till)
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
@@ -213,9 +211,7 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
         write_herbie.map(
             all_jobs,
             kwargs={
-                "model": model,
                 "schema": schema,
-                "store": store,
                 "ntimes": ntimes,
             },
         )
@@ -229,8 +225,11 @@ def write_times(*, model, store, since, till=None, ingest: Ingest, **write_kwarg
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=240)
-def write_herbie(job, *, model, schema, store, ntimes=None):
+def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
+
+    model = models.get_model(ingest.model)
+    store = lib.get_zarr_store(ingest.store)
 
     logger.debug("Processing job {}".format(job))
     try:
@@ -302,15 +301,10 @@ def ingest():
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
 def hrrr_backfill():
-    model = models.get_model("hrrr")
-    repo = lib.create_repo(model.name)
-    store = repo.store
     list(
         backfill.map(
             INGEST_GROUPS,
             kwargs={
-                "model": model,
-                "store": store,
                 "since": datetime.utcnow() - timedelta(days=3),
                 "till": datetime.utcnow() - timedelta(days=1, hours=12),
             },
@@ -320,15 +314,10 @@ def hrrr_backfill():
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
 def gfs_backfill():
-    model = models.get_model("gfs")
-    repo = lib.create_repo(model.name)
-    store = repo.store
     list(
         backfill.map(
             INGEST_GROUPS,
             kwargs={
-                "model": model,
-                "store": store,
                 "since": datetime.utcnow() - timedelta(days=3),
                 "till": datetime.utcnow() - timedelta(days=1, hours=12),
             },
@@ -338,10 +327,12 @@ def gfs_backfill():
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
 def hrrr_update():
-    model = models.get_model("hrrr")
-    repo = lib.get_repo(model.name)
-    store = repo.store
-    list(update.map(INGEST_GROUPS, kwargs={"model": model, "store": store}))
+    list(update.map(INGEST_GROUPS))
+
+
+# @app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
+def gfs_update():
+    list(update.map(INGEST_GROUPS))
 
 
 @app.local_entrypoint()
