@@ -75,7 +75,6 @@ MODAL_FUNCTION_KWARGS = dict(
         modal.Secret.from_name("deepak-arraylake-demos-token"),
     ],
     mounts=[modal.Mount.from_local_python_packages("src")],
-    retries=modal.Retries(max_retries=3),
 )
 
 
@@ -213,7 +212,7 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
         )
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=240)
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
 
