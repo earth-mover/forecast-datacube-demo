@@ -14,7 +14,7 @@ import zarr
 from modal import App, Image
 
 from src import lib, models
-from src.lib import ForecastModel, Ingest, get_logger
+from src.lib import Ingest, get_logger
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -95,7 +95,8 @@ def backfill(
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
-def update(ingest: Ingest, model: ForecastModel, store):
+def update(ingest: Ingest):
+    model = models.get_model(ingest.model)
     group = ingest.zarr_group
     store = ingest.zarr_store
     assert store is not None
