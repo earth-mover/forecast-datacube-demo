@@ -22,7 +22,7 @@ class GFS(ForecastModel):
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
     update_freq = timedelta(hours=6)
-    dim_order = ("time", "step", "latitude", "longitude")
+    dim_order = ("longitude", "latitude", "time", "step")
 
     def get_steps(self, time: pd.Timestamp) -> Iterable:
         return list(range(0, 120)) + list(range(120, 385, 3))
@@ -145,11 +145,10 @@ class GFS(ForecastModel):
 
         data_vars = self.get_data_vars(search)
         # TODO: Make this configurable
-        dims = ("time", "step", "latitude", "longitude")
-        shape = tuple(schema.sizes[dim] for dim in dims)
-        chunks = (1, 24, 120, 360)
+        shape = tuple(schema.sizes[dim] for dim in self.dim_order)
+        chunks = (360, 120, 1, 24)
         for name in data_vars:
             name = RENAME_VARS.get(name, name).lower()
-            schema[name] = (dims, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
+            schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
         return schema

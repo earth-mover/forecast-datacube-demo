@@ -18,7 +18,7 @@ class HRRR(ForecastModel):
     step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
-    dim_order = ("time", "step", "y", "x")
+    dim_order = ("x", "y", "time", "step")
     update_freq = timedelta(hours=1)
 
     def get_lat_lon(self):
@@ -103,13 +103,12 @@ class HRRR(ForecastModel):
             {"standard_name": "latitude", "units": "degrees_north"},
         )
 
-        dims = ("time", "step", "y", "x")
-        shape = tuple(schema.sizes[dim] for dim in dims)
+        shape = tuple(schema.sizes[dim] for dim in self.dim_order)
         # TODO: Make this configurable
-        chunks = (1, 6, 120, 360)
+        chunks = (360, 120, 19, 1)
         for name in self.get_data_vars(search):
             name = RENAME_VARS.get(name, name).lower()
-            schema[name] = (dims, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
+            schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
             schema[name].encoding["write_empty_chunks"] = False
         return schema
