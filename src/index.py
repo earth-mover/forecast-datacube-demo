@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import datetime
+import enum
 from dataclasses import dataclass
 
 import numpy as np
@@ -14,6 +17,10 @@ Timedelta = str | datetime.timedelta | np.timedelta64  # TODO: pd.DateOffset als
 ####################
 ####  Indexer types
 # reference: https://www.unidata.ucar.edu/presentations/caron/FmrcPoster.pdf
+
+
+class Model(enum.StrEnum):
+    HRRR = enum.auto()
 
 
 @dataclass(init=False)
@@ -32,6 +39,17 @@ class ModelRun:
     def __init__(self, time: Timestamp):
         self.time = pd.Timestamp(time)
 
+    def get_indexer(
+        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> tuple[int, slice]:
+        (time_idxr,) = time_index.get_indexer([self.time])
+        period_idxr = slice(None)
+
+        if model is model.HRRR and self.time.hour % 6 != 0:
+            period_idxr = slice(19)
+
+        return time_idxr, period_idxr
+
 
 @dataclass(init=False)
 class ConstantOffset:
@@ -43,8 +61,21 @@ class ConstantOffset:
 
     step: pd.Timedelta
 
-    def __post_init__(self, step: Timedelta):
+    def __init__(self, step: Timedelta):
         self.step = pd.Timedelta(step)
+
+    def get_indexer(
+        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> tuple[slice | np.array, int]:
+        time_idxr = slice(None)
+        (period_idxr,) = period_index.get_indexer([self.step])
+
+        if model is model.HRRR and self.step.seconds / 3600 % 6 > 18:
+            model_mask = np.ones(time_index.shape, dtype=np.bool)
+            model_mask[time_index.hour != 6] = False
+            time_idxr = np.arange(time_index.size)[model_mask]
+
+        return time_idxr, period_idxr
 
 
 @dataclass(init=False)
@@ -63,7 +94,9 @@ class ConstantForecast:
     def __init__(self, time: Timestamp):
         self.time = pd.Timestamp(time)
 
-    def get_indexer(self, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex) -> dict:
+    def get_indexer(
+        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> dict:
         target = self.time
         max_timedelta = period_index[-1]
 
@@ -73,7 +106,6 @@ class ConstantForecast:
 
         # latest we can get
         right = time_index.get_slice_bound(target, side="right")
-        # print(left, right)
 
         needed_times = time_index[slice(left, right)]
         needed_steps = target - needed_times
@@ -81,14 +113,18 @@ class ConstantForecast:
 
         needed_time_idxs = np.arange(left, right)
         needed_step_idxs = period_index.get_indexer(needed_steps)
-        # print(needed_time_idxs, needed_step_idxs)
+        model_mask = np.ones(needed_time_idxs.shape, dtype=bool)
+
+        # TODO: refactor this out
+        if model is model.HRRR:
+            model_mask[(needed_times.hour != 6) & (needed_steps > pd.to_timedelta("18h"))] = False
 
         # It's possible we don't have the right step.
         # If pandas doesn't find an exact match it returns -1.
         mask = needed_step_idxs != -1
 
-        needed_step_idxs = needed_step_idxs[mask]
-        needed_time_idxs = needed_time_idxs[mask]
+        needed_step_idxs = needed_step_idxs[model_mask & mask]
+        needed_time_idxs = needed_time_idxs[model_mask & mask]
 
         assert needed_step_idxs.size == needed_time_idxs.size
 
@@ -114,7 +150,9 @@ class BestEstimate:
                 "which is earlier than requested {asof=!r}"
             )
 
-    def get_indexer(self, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex):
+    def get_indexer(
+        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ):
         if period_index[0] != pd.Timedelta(0):
             raise ValueError(
                 "Can't make a best estimate dataset if forecast_period doesn't start at 0."
@@ -131,14 +169,20 @@ class BestEstimate:
         else:
             (last_index,) = time_index.get_indexer([self.asof])
 
+        # TODO: refactor to a Model dataclass that does this filtering appropriately.
+        if model is Model.HRRR and time_index[first_index].hour % 6 != 0:
+            nsteps = 19
+        else:
+            nsteps = period_index.size
+
         needed_time_idxrs = np.concatenate(
             [
                 np.arange(first_index, last_index, dtype=int),
-                np.repeat(last_index, period_index.size),
+                np.repeat(last_index, nsteps),
             ]
         )
         needed_step_idxrs = np.concatenate(
-            [np.zeros((last_index - first_index,), dtype=int), np.arange(period_index.size)]
+            [np.zeros((last_index - first_index,), dtype=int), np.arange(nsteps)]
         )
 
         return needed_time_idxrs, needed_step_idxrs
@@ -155,11 +199,12 @@ class ForecastIndex(Index):
     # based off Benoit's RasterIndex in
     # https://hackmd.io/Zxw_zCa7Rbynx_iJu6Y3LA?view
 
-    def __init__(self, variables: Indexes, dummy_name: str):
+    def __init__(self, variables: Indexes, dummy_name: str, model: Model | None = None):
         self._indexes = variables
 
         assert isinstance(dummy_name, str)
         self.dummy_name = dummy_name
+        self.model = model
 
         self.names = {
             "reference_time": self._indexes.reference_time.index.name,
@@ -202,45 +247,62 @@ class ForecastIndex(Index):
         You cannot mix (1) with (2) or (3), but (2) and (3) can be combined in a single
         statement.
         """
-        if self.dummy_name in labels:
-            assert len(labels) == 1
+        if self.dummy_name in labels and len(labels) != 1:
+            raise ValueError(
+                f"Indexing along {self.dummy_name!r} cannot be combined with "
+                f"indexing along {tuple(self.names)!r}"
+            )
 
-            label: ConstantOffset | ModelRun | ConstantForecast | BestEstimate
-            label = next(iter(labels.values()))
+        # TODO: merge_sel_results here.
+        # default = IndexSelResult(
+        #     dim_indexers=indexer, variables=new_indexers, drop_coords=["forecast"]
+        # )
+        assert len(labels) == 1
+        if self.names["reference_time"] in labels:
+            return self._indexes.reference_time.sel(labels, **kwargs)
+        elif self.names["period"] in labels:
+            return self._indexes.period.sel(labels, **kwargs)
 
-            time_index = self._indexes.reference_time.index
-            period_index = self._indexes.period.index
+        label: ConstantOffset | ModelRun | ConstantForecast | BestEstimate
+        label = next(iter(labels.values()))
 
-            match label:
-                case ConstantOffset(step):
-                    indexer = {self.names["period"]: period_index.get_indexer(step)}
+        time_index = self._indexes.reference_time.index
+        period_index = self._indexes.period.index
 
-                case ModelRun(timestamp):
-                    indexer = {self.names["reference_time"]: time_index.get_indexer(timestamp)}
+        time_idxr, period_idxr = label.get_indexer(self.model, time_index, period_index)
 
-                case ConstantForecast() | BestEstimate():
-                    time_idxrs, period_idxrs = label.get_indexer(time_index, period_index)
-                    indexer = {
-                        self.names["reference_time"]: xr.Variable("valid_time", time_idxrs),
-                        self.names["period"]: xr.Variable("valid_time", period_idxrs),
-                    }
+        match label:
+            case ConstantOffset():
+                indexer = {self.names["period"]: period_idxr}
+                if time_idxr is not slice(None):
+                    indexer = {self.names["reference_time"]: time_idxr}
 
-                case _:
-                    raise ValueError(f"Invalid indexer type {type(label)} for label: {label}")
+            case ModelRun(timestamp):
+                indexer = {self.names["reference_time"]: time_index.get_indexer(timestamp)}
+                if period_idxr is not slice(None):
+                    indexer = {self.names["period"]: period_idxr}
 
-            match label:
-                case ConstantForecast():
-                    new_indexers = {"valid_time": xr.Variable("valid_time", [label.time])}
-                case BestEstimate():
-                    new_indexers = {
-                        "valid_time": time_index[time_idxrs] + period_index[period_idxrs]
-                    }
-                case _:
-                    new_indexers = {}
+            case ConstantForecast() | BestEstimate():
+                indexer = {
+                    self.names["reference_time"]: xr.Variable("valid_time", time_idxr),
+                    self.names["period"]: xr.Variable("valid_time", period_idxr),
+                }
+
+            case _:
+                raise ValueError(f"Invalid indexer type {type(label)} for label: {label}")
+
+        match label:
+            case ConstantForecast():
+                new_indexers = {"valid_time": xr.Variable("valid_time", [label.time])}
+            case BestEstimate():
+                new_indexers = {"valid_time": time_index[time_idxr] + period_index[period_idxr]}
+            case _:
+                new_indexers = {}
 
         # sel needs to only handle keys in labels
         # since it delegates to isel.
         # we handle all entries in ._indexes there
+        # TODO: add valid_time index here.
         return IndexSelResult(
             dim_indexers=indexer, variables=new_indexers, drop_coords=["forecast"]
         )
