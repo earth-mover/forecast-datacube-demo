@@ -40,12 +40,12 @@ class ModelRun:
         self.time = pd.Timestamp(time)
 
     def get_indexer(
-        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+        self, model: Model | None, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
     ) -> tuple[int, slice]:
         (time_idxr,) = time_index.get_indexer([self.time])
         period_idxr = slice(None)
 
-        if model is model.HRRR and self.time.hour % 6 != 0:
+        if model is Model.HRRR and self.time.hour % 6 != 0:
             period_idxr = slice(19)
 
         return time_idxr, period_idxr
@@ -65,13 +65,13 @@ class ConstantOffset:
         self.step = pd.Timedelta(step)
 
     def get_indexer(
-        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
-    ) -> tuple[slice | np.array, int]:
+        self, model: Model | None, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> tuple[slice | np.ndarray, int]:
         time_idxr = slice(None)
         (period_idxr,) = period_index.get_indexer([self.step])
 
-        if model is model.HRRR and self.step.seconds / 3600 % 6 > 18:
-            model_mask = np.ones(time_index.shape, dtype=np.bool)
+        if model is Model.HRRR and self.step.seconds / 3600 % 6 > 18:
+            model_mask = np.ones(time_index.shape, dtype=bool)
             model_mask[time_index.hour != 6] = False
             time_idxr = np.arange(time_index.size)[model_mask]
 
@@ -95,8 +95,8 @@ class ConstantForecast:
         self.time = pd.Timestamp(time)
 
     def get_indexer(
-        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
-    ) -> dict:
+        self, model: Model | None, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> tuple[np.ndarray, np.ndarray]:
         target = self.time
         max_timedelta = period_index[-1]
 
@@ -108,7 +108,7 @@ class ConstantForecast:
         right = time_index.get_slice_bound(target, side="right")
 
         needed_times = time_index[slice(left, right)]
-        needed_steps = target - needed_times
+        needed_steps = target - needed_times  # type: ignore
         # print(needed_times, needed_steps)
 
         needed_time_idxs = np.arange(left, right)
@@ -116,7 +116,7 @@ class ConstantForecast:
         model_mask = np.ones(needed_time_idxs.shape, dtype=bool)
 
         # TODO: refactor this out
-        if model is model.HRRR:
+        if model is Model.HRRR:
             model_mask[(needed_times.hour != 6) & (needed_steps > pd.to_timedelta("18h"))] = False
 
         # It's possible we don't have the right step.
@@ -151,8 +151,8 @@ class BestEstimate:
             )
 
     def get_indexer(
-        self, model: Model, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
-    ):
+        self, model: Model | None, time_index: pd.DatetimeIndex, period_index: pd.TimedeltaIndex
+    ) -> tuple[np.ndarray, np.ndarray]:
         if period_index[0] != pd.Timedelta(0):
             raise ValueError(
                 "Can't make a best estimate dataset if forecast_period doesn't start at 0."
@@ -221,15 +221,13 @@ class ForecastIndex(Index):
         """
         assert len(variables) == 3
 
-        dummy_name = None
-
         indexes = {}
         for k in ["forecast_reference_time", "forecast_period"]:
             for name, var in variables.items():
                 std_name = var.attrs.get("standard_name", None)
                 if k == std_name:
                     indexes[k.removeprefix("forecast_")] = PandasIndex.from_variables(
-                        {name: var}, options=None
+                        {name: var}, options={}
                     )
                 elif var.ndim == 0:
                     dummy_name = name
@@ -266,8 +264,8 @@ class ForecastIndex(Index):
         label: ConstantOffset | ModelRun | ConstantForecast | BestEstimate
         label = next(iter(labels.values()))
 
-        time_index = self._indexes.reference_time.index
-        period_index = self._indexes.period.index
+        time_index: pd.DatetimeIndex = self._indexes.reference_time.index  # type: ignore[assignment]
+        period_index: pd.TimedeltaIndex = self._indexes.period.index  # type: ignore[assignment]
 
         time_idxr, period_idxr = label.get_indexer(self.model, time_index, period_index)
 

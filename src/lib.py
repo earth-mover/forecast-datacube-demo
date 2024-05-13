@@ -6,7 +6,7 @@ import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Hashable, Iterable, Literal
+from typing import Any, Hashable, Iterable, Literal, Sequence
 
 import fsspec
 import numpy as np
@@ -15,6 +15,7 @@ import xarray as xr
 import zarr
 
 RENAME_VARS = {"UGRD": "u", "VGRD": "v"}
+TimestampLike = Any
 
 
 def get_logger():
@@ -62,13 +63,21 @@ class Job:
 
 
 class ForecastModel(ABC):
+    name: str
+    runtime_dim: str
+    step_dim: str
+    expand_dims: Sequence[str]
+    drop_vars: Sequence[str]
+    dim_order: Sequence[str]
+    update_freq: timedelta
+
     @abstractmethod
     def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
         """Create schema with chunking for on-disk storage."""
         pass
 
     @abstractmethod
-    def get_steps(self, time: pd.Timestamp) -> Iterable:
+    def get_steps(self, time: pd.Timestamp) -> Sequence:
         """Get available forecast steps or 'fxx' for this model run timestamp."""
         pass
 
@@ -87,11 +96,13 @@ class ForecastModel(ABC):
         ]
         return data_vars
 
-    def get_available_times(self, since, till=None):
+    def get_available_times(
+        self, since: TimestampLike, till: TimestampLike | None = None
+    ) -> pd.DatetimeIndex:
         if till is None:
             till = datetime.utcnow()
-        since = pd.Timestamp(since).floor(self.update_freq)
-        till = pd.Timestamp(till).floor(self.update_freq)
+        since = pd.Timestamp(since).floor(self.update_freq)  # type: ignore[arg-type]
+        till = pd.Timestamp(till).floor(self.update_freq)  # type: ignore[arg-type]
         available_times = pd.date_range(since, till, inclusive="left", freq=self.update_freq)
         if available_times.empty:
             raise RuntimeError(f"No data available for time range {since!r} to {till!r}")
@@ -140,8 +151,8 @@ def split_into_batches(all_urls: list[list[str]], *, n: int):
 def open_single_grib(
     uri: str,
     *,
-    expand_dims: Iterable[Hashable] = None,
-    drop_vars: Iterable[Hashable] = None,
+    expand_dims: Sequence[Hashable] | None = None,
+    drop_vars: Sequence[Hashable] | None = None,
     chunks="auto",
     **kwargs,
 ) -> xr.Dataset:

@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Hashable, Iterable
+from typing import Hashable, Sequence
 
 import dask.array
 import fsspec
@@ -24,7 +24,7 @@ class GFS(ForecastModel):
     update_freq = timedelta(hours=6)
     dim_order = ("longitude", "latitude", "time", "step")
 
-    def get_steps(self, time: pd.Timestamp) -> Iterable:
+    def get_steps(self, time: pd.Timestamp) -> Sequence:
         return list(range(0, 120)) + list(range(120, 385, 3))
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
@@ -49,8 +49,8 @@ class GFS(ForecastModel):
     def open_single_grib(
         self,
         uri,
-        expand_dims: Iterable[Hashable] = None,
-        drop_vars: Iterable[Hashable] = None,
+        expand_dims: Sequence[Hashable] | None = None,
+        drop_vars: Sequence[Hashable] | None = None,
         **kwargs,
     ) -> xr.Dataset:
         if expand_dims is None:
@@ -131,7 +131,7 @@ class GFS(ForecastModel):
         schema["time"] = ("time", times, {"standard_name": "forecast_reference_time"})
         schema["step"] = (
             "step",
-            pd.to_timedelta(self.get_steps(datetime.utcnow()), unit="hours"),
+            pd.to_timedelta(self.get_steps(pd.Timestamp(datetime.utcnow())), unit="hours"),
             {"standard_name": "forecast_period"},
         )
 

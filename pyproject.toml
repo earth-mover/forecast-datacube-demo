@@ -19,3 +19,14 @@ select = [
 ignore = [
     "UP032", # format in logger statements
 ]
+
+# TODO: mypy improvements for these
+[[tool.mypy.overrides]]
+ignore_missing_imports = true
+module=[
+"cartopy.*",
+"fsspec.*",
+"herbie.*",
+"pyproj.*",
+"zarr.*",
+]

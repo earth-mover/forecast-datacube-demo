@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Iterable
+from typing import Sequence
 
 import dask.array
 import numpy as np
@@ -61,7 +61,7 @@ class HRRR(ForecastModel):
         lon += 360
         return lat, lon
 
-    def get_steps(self, time: pd.Timestamp) -> Iterable:
+    def get_steps(self, time: pd.Timestamp) -> Sequence:
         # 48 hour forecasts every 6 hours, 18 hour forecasts otherwise
         # add one for the "analysis"
         if (time - time.floor("D")) % timedelta(hours=6) == timedelta(hours=0):
