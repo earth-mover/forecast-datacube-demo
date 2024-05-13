@@ -118,10 +118,22 @@ class GFS(ForecastModel):
         if times is None:
             times = [datetime.utcnow()]
         schema = xr.Dataset()
-        schema["latitude"] = np.arange(90, -90.1, -0.25)
-        schema["longitude"] = np.arange(0, 360, 0.25)
-        schema["time"] = ("time", times)
-        schema["step"] = ("step", pd.to_timedelta(self.get_steps(datetime.utcnow()), unit="hours"))
+        schema["latitude"] = (
+            "latitude",
+            np.arange(90, -90.1, -0.25),
+            {"standard_name": "latitude", "units": "degrees_north"},
+        )
+        schema["longitude"] = (
+            "longitude",
+            np.arange(0, 360, 0.25),
+            {"standard_name": "longitude", "units": "degrees_east"},
+        )
+        schema["time"] = ("time", times, {"standard_name": "forecast_reference_time"})
+        schema["step"] = (
+            "step",
+            pd.to_timedelta(self.get_steps(datetime.utcnow()), unit="hours"),
+            {"standard_name": "forecast_period"},
+        )
 
         schema["longitude"].encoding.update(
             lib.optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
