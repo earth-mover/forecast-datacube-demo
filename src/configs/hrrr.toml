@@ -1,0 +1,43 @@
+# Format
+# ------
+# [arbitrary_name]
+# ## Three Herbie Parameters
+# model = string
+# product = string
+# search = string
+# ## Two Zarr store Parameters
+# store = string  e.g. s3://my-bucket/store.zarr
+# zarr_group = string e.g. "sfc/fcst"
+# ## Schema
+# chunks = {string: int}, integer chunk size for dimension
+
+ # - model: gfs
+ #   store: "al://earthmover-demos/gfs"
+ #   - ingests:
+ #     - product: None
+ #       zarr_group: "fcst/"
+ #       search: ":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"
+
+[job1]
+model = "hrrr"
+product = "sfc"
+store = "arraylake://earthmover-demos/hrrr-2"
+zarr_group =  "sfc/fcst2/"
+search = "DSWRF:surface:(?=anl|[0-9]* hour fcst)"
+chunks = {x = 360,y = 120,time = 1,step = 19}
+
+[job2]
+model = "hrrr"
+product = "sfc"
+store = "arraylake://earthmover-demos/hrrr-2"
+zarr_group =  "sfc/fcst/"
+search = ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"
+chunks={x = 360,y = 120,time = 1,step = 19}
+
+[job3]
+model = "hrrr"
+product = "sfc"
+store = "arraylake://earthmover-demos/hrrr-2"
+zarr_group =  "sfc/rechunked/"
+search = ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?=\\banl|6|12|18\\b)"
+chunks = {x = 360,y = 120,time = 24,step = 1}

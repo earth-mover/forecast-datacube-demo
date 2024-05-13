@@ -111,7 +111,7 @@ class GFS(ForecastModel):
             coords="minimal",
         )
 
-    def create_schema(self, search: str, times=None) -> xr.Dataset:
+    def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
         """
@@ -156,9 +156,8 @@ class GFS(ForecastModel):
         schema["step"].encoding["units"] = "hours"
 
         data_vars = self.get_data_vars(search)
-        # TODO: Make this configurable
         shape = tuple(schema.sizes[dim] for dim in self.dim_order)
-        chunks = (360, 120, 1, 24)
+        chunks = tuple(chunksizes[dim] for dim in self.dim_order)
         for name in data_vars:
             name = RENAME_VARS.get(name, name).lower()
             schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))

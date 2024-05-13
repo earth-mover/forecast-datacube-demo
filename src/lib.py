@@ -39,11 +39,13 @@ class Ingest:
     in the Zarr store ``store``.
     """
 
+    name: str
     model: Literal["gfs", "hrrr"]
     product: str
     store: str
     zarr_group: str
     search: str
+    chunks: dict[str, int]
     zarr_store: Any = None
 
 
@@ -60,6 +62,11 @@ class Job:
 
 
 class ForecastModel(ABC):
+    @abstractmethod
+    def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
+        """Create schema with chunking for on-disk storage."""
+        pass
+
     @abstractmethod
     def get_steps(self, time: pd.Timestamp) -> Iterable:
         """Get available forecast steps or 'fxx' for this model run timestamp."""

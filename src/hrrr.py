@@ -69,7 +69,7 @@ class HRRR(ForecastModel):
         else:
             return range(19)
 
-    def create_schema(self, search: str, times=None) -> xr.Dataset:
+    def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
         """
@@ -106,8 +106,6 @@ class HRRR(ForecastModel):
         )
 
         shape = tuple(schema.sizes[dim] for dim in self.dim_order)
-        # TODO: Make this configurable
-        chunksizes = {"x": 360, "y": 120, "time": 1, "step": 19}
         chunks = tuple(chunksizes[dim] for dim in self.dim_order)
         for name in self.get_data_vars(search):
             name = RENAME_VARS.get(name, name).lower()
