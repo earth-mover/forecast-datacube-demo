@@ -21,23 +21,23 @@
 [job1]
 model = "hrrr"
 product = "sfc"
-store = "arraylake://earthmover-demos/hrrr-2"
+store = "arraylake://earthmover-demos/hrrr-3"
 zarr_group =  "sfc/fcst2/"
-search = "DSWRF:surface:(?=anl|[0-9]* hour fcst)"
-chunks = {x = 360,y = 120,time = 1,step = 19}
+searches = ["DSWRF:surface:(?=anl|[0-9]* hour fcst)"]
+chunks = {x = 360, y = 120,time = 1,step = 19}
 
 [job2]
 model = "hrrr"
 product = "sfc"
-store = "arraylake://earthmover-demos/hrrr-2"
+store = "arraylake://earthmover-demos/hrrr-3"
 zarr_group =  "sfc/fcst/"
-search = ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"
-chunks={x = 360,y = 120,time = 1,step = 19}
+searches = [":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"]
+chunks={x = 360, y = 120, time = 1, step = 19}
 
 [job3]
 model = "hrrr"
 product = "sfc"
-store = "arraylake://earthmover-demos/hrrr-2"
+store = "arraylake://earthmover-demos/hrrr-3"
 zarr_group =  "sfc/rechunked/"
-search = ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?=\\banl|6|12|18\\b)"
-chunks = {x = 360,y = 120,time = 24,step = 1}
+searches = [":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?=\\banl|6|12|18\\b)"]
+chunks = {x = 360,y = 120,time = 24, step = 1}
