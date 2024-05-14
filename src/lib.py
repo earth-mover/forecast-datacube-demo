@@ -72,7 +72,9 @@ class ForecastModel(ABC):
     update_freq: timedelta
 
     @abstractmethod
-    def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
+    def create_schema(
+        self, chunksizes: dict[str, int], *, search: str | None = None, times=None
+    ) -> xr.Dataset:
         """Create schema with chunking for on-disk storage."""
         pass
 

@@ -69,7 +69,9 @@ class HRRR(ForecastModel):
         else:
             return range(19)
 
-    def create_schema(self, search: str, chunksizes: dict[str, int], times=None) -> xr.Dataset:
+    def create_schema(
+        self, chunksizes: dict[str, int], *, search: str | None = None, times=None
+    ) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
         """
@@ -80,7 +82,7 @@ class HRRR(ForecastModel):
 
         schema["time"] = ("time", times)
         schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
-        schema["time"].encoding["standard_name"] = "forecast_reference_time"
+        schema["time"].attrs["standard_name"] = "forecast_reference_time"
 
         schema["step"] = ("step", pd.to_timedelta(np.arange(49), unit="hours"))
         schema["step"].encoding.update(
@@ -90,7 +92,7 @@ class HRRR(ForecastModel):
         )
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
-        schema["step"].encoding["standard_name"] = "forecast_period"
+        schema["step"].attrs["standard_name"] = "forecast_period"
 
         # TODO: optimize encoding for latitude, longitude
         lat, lon = self.get_lat_lon()
@@ -104,6 +106,9 @@ class HRRR(ForecastModel):
             lat,
             {"standard_name": "latitude", "units": "degrees_north"},
         )
+
+        if search is None:
+            return schema
 
         shape = tuple(schema.sizes[dim] for dim in self.dim_order)
         chunks = tuple(chunksizes[dim] for dim in self.dim_order)

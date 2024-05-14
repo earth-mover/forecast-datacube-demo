@@ -1,6 +1,7 @@
 import itertools
 import logging
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -22,7 +23,7 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
-app = App("example-forecast-ingest")
+app = App("forecast-ingest-lib")
 
 
 MODAL_IMAGE = (
@@ -61,6 +62,25 @@ MODAL_FUNCTION_KWARGS = dict(
 
 
 #############
+
+
+@app.function(**MODAL_FUNCTION_KWARGS)
+def initialize(ingest):
+    logger.info("initialize: for ingest {}".format(ingest))
+    model = models.get_model(ingest.model)
+    group = ingest.zarr_group
+    store = ingest.zarr_store
+
+    # We write the schema for time-invariant variables first to prevent conflicts
+    schema = (
+        model.create_schema(chunksizes=ingest.chunks)
+        .coords.to_dataset()
+        .drop_dims([model.runtime_dim])
+    )
+    schema.to_zarr(store, group=group, mode="w")
+
+    if isinstance(store, al.repo.ArraylakeStore):
+        store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
@@ -158,26 +178,22 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     available_times = model.get_available_times(since, till)
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
 
-    schema = model.create_schema(times=available_times, search=ingest.search)
+    schema = model.create_schema(
+        times=available_times, search=ingest.search, chunksizes=ingest.chunks
+    )
     logger.info(f"schema {schema}")
 
     logger.info("Writing schema")
     schema.to_zarr(store, group=group, **write_kwargs, compute=False)
 
-    # if isinstance(store, al.repo.ArraylakeStore):
-    #     store._repo.commit("Write schema for ingest: {}".format(ingest))
-
     # figure out total number of timestamps in store.
     ntimes = zarr.open_group(store)[f"{group}/time"].size
-
-    # TODO: set this some other way
-    var = next(iter(schema.data_vars))
-    chunksizes = dict(zip(schema[var].dims, schema[var].encoding["chunks"]))
 
     time_and_steps = itertools.chain(
         *(
             itertools.product(
-                (t,), lib.batched(model.get_steps(t - t.floor("D")), n=chunksizes[model.step_dim])
+                (t,),
+                lib.batched(model.get_steps(t - t.floor("D")), n=ingest.chunks[model.step_dim]),
             )
             for t in available_times
         )
@@ -267,30 +283,29 @@ def write_herbie(job, *, schema, ntimes=None):
     return ds.step
 
 
-# @app.function(**MODAL_FUNCTION_KWARGS, timeout=720)
-# def hrrr_backfill():
-#     list(
-#         backfill.map(
-#             INGEST_GROUPS,
-#             kwargs={
-#                 "since": datetime.utcnow() - timedelta(days=3),
-#                 "till": datetime.utcnow() - timedelta(days=1, hours=12),
-#             },
-#         )
-#     )
+def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
+    with open(file, mode="rb") as f:
+        parsed = tomllib.load(f)
 
-# @app.function(**MODAL_FUNCTION_KWARGS, timeout=720, schedule=modal.Cron("30 * * * *"))
-# def hrrr_update():
-#     list(update.map(INGEST_GROUPS))
+    ingest_jobs = defaultdict(list)
+    for key, values in parsed.items():
+        searches = values.pop("searches")
+        for search in searches:
+            ingest_jobs[key].append(lib.Ingest(name=key, **values, search=search))
+    return ingest_jobs
 
 
-def driver(*, mode, ingests, since, till):
+def driver(*, mode, ingest_jobs, since, till):
     # Set this here for Arraylake so all tasks start with the same state
-    # for i in ingests:
-    #     i.zarr_store = lib.get_zarr_store(i.store)
+    for v in ingest_jobs.values():
+        for i in v:
+            i.zarr_store = lib.get_zarr_store(i.store)
 
+    ingests = itertools.chain(*ingest_jobs.values())
     if mode == "backfill":
-        # TODO: assert zarr_store is not duplicated
+        # TODO: assert zarr_store/group is not duplicated
+        for_init = tuple(next(iter(v)) for v in ingest_jobs.values())
+        list(initialize.map(for_init))
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
     elif mode == "update":
@@ -300,27 +315,52 @@ def driver(*, mode, ingests, since, till):
         raise NotImplementedError()
 
 
-@app.local_entrypoint()
-def main():
-    modal_mode = "deploy"
-    name = "HRRR update"
-    cron = "30 * * * *"
-    file = "src/configs/hrrr.toml"
-    mode = "update"  # "update", or "insert"
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+def hrrr_backfill():
+    mode = "backfill"  # "update", or "backfill"
     since = datetime.utcnow() - timedelta(days=3)
     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
-    with open(file, mode="rb") as f:
-        parsed = tomllib.load(f)
-    ingests = tuple(lib.Ingest(**i) for i in parsed["ingests"])
+    ingest_jobs = parse_toml_config("src/configs/hrrr.toml")
 
-    # ingest.remote()
-    # hrrr_update.remote()
-    if modal_mode == "deploy":
-        driver_function = app.function(
-            driver, name=name, schedule=modal.Cron(cron), **MODAL_FUNCTION_KWARGS, timeout=3600
-        )
-        modal.runner.deploy_app(app)
-    else:
-        driver_function = app.function(driver, **MODAL_FUNCTION_KWARGS, timeout=3600)
-        driver_function.remote(mode=mode, since=since, till=till, ingests=ingests)
+    driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
+
+
+# @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("40 * * * *"))
+# def hrrr_update():
+#     file = "src/configs/hrrr.toml"
+#     mode = "update"  # "update", or "insert"
+#     since = datetime.utcnow() - timedelta(days=3)
+#     till = datetime.utcnow() - timedelta(days=1, hours=12)
+
+#     with open(file, mode="rb") as f:
+#         parsed = tomllib.load(f)
+#     print(parsed)
+
+#     ingests = []
+#     for key, values in parsed.items():
+#         searches = values.pop("searches")
+#         for search in searches:
+#             ingests.append(lib.Ingest(name=key, **values, search=search))
+#     driver(mode=mode, ingests=ingests, since=since, till=till)
+
+
+@app.local_entrypoint()
+def main():
+    hrrr_backfill.remote()
+    # Command-line kwargs
+    # modal_mode = "run"
+
+    # # In config TOML file
+    # name = "hrrr_update"
+    # cron = "30 * * * *"
+
+    # modal_kwargs = dict(name=name, **MODAL_FUNCTION_KWARGS, timeout=3600)
+    # # if modal_mode == "deploy":
+    # #     if cron:
+    # #         modal_kwargs["schedule"] = modal.Cron("30 * * * *")
+    # #     driver_function = app.function(**modal_kwargs)(interface)
+    # #     modal.runner.deploy_app(app, name=name)
+    # # else:
+    # driver_function = app.function(**modal_kwargs)(interface)
+    # driver_function.remote()
