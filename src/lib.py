@@ -182,9 +182,10 @@ class ForecastModel(ABC):
 
         # May not be complete yet.
         steps = self.get_steps(HL.date)
-        FH = FastHerbie([HL.date], model=ingest.model, product=ingest.product, fxx=steps)
-        n_actual_steps = FH.inventory(search).forecast_time.nunique()
-        if n_actual_steps != len(steps):
+        FH = FastHerbie(
+            [HL.date], model=ingest.model, product=ingest.product, priority="aws", fxx=steps
+        )
+        if FH.file_not_exists:
             latest_available = HL.date - self.update_freq
             logger.info(
                 f"Data not complete for date={HL.date!r}. "
@@ -202,6 +203,7 @@ class ForecastModel(ABC):
             fxx=list(job.steps),
             model=self.name,
             product=job.ingest.product,
+            priority="aws",
         )
         (search,) = job.ingest.searches
         logger.debug("Searching {}".format(search))
