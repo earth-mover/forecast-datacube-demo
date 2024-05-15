@@ -6,6 +6,7 @@ import string
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum, auto
 from typing import Any, Hashable, Iterable, Literal, Sequence
 
 import fsspec
@@ -28,6 +29,11 @@ logger = get_logger()
 
 def random_string(n):
     return "".join(random.choice(string.ascii_uppercase + string.digits) for _ in range(n))
+
+
+class WriteMode(StrEnum):
+    BACKFILL = auto()
+    UPDATE = auto()
 
 
 @dataclass

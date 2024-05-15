@@ -14,7 +14,7 @@ import zarr
 from modal import App, Image
 
 from src import lib, models
-from src.lib import Ingest, get_logger
+from src.lib import Ingest, WriteMode, get_logger
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -337,13 +337,13 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
     return ingest_jobs
 
 
-def driver(*, mode, ingest_jobs, since=None, till=None):
+def driver(*, mode: WriteMode, ingest_jobs: dict[str, Ingest], since=None, till=None) -> None:
     # Set this here for Arraylake so all tasks start with the same state
     for i in ingest_jobs.values():
         i.zarr_store = lib.get_zarr_store(i.store)
 
     ingests = itertools.chain(*ingest_jobs.values())
-    if mode == "backfill":
+    if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
         for_init = tuple(next(iter(v)) for v in ingest_jobs.values())
         list(initialize.map(for_init))
@@ -354,7 +354,7 @@ def driver(*, mode, ingest_jobs, since=None, till=None):
 
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
-    elif mode == "update":
+    elif mode is WriteMode.UPDATE:
         list(update.map(ingests))
 
     else:
@@ -364,7 +364,7 @@ def driver(*, mode, ingest_jobs, since=None, till=None):
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def hrrr_backfill():
     file = "src/configs/hrrr.toml"
-    mode = "backfill"  # "update", or "backfill"
+    mode = WriteMode.BACKFILL
     since = datetime.utcnow() - timedelta(days=3)
     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
@@ -376,7 +376,7 @@ def hrrr_backfill():
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
 def hrrr_update_solar():
     file = "src/configs/hrrr.toml"
-    mode = "update"  # "update", or "insert"
+    mode = WriteMode.UPDATE
 
     ingest_jobs = parse_toml_config(file)
     driver(mode=mode, ingest_jobs=ingest_jobs)
@@ -385,7 +385,7 @@ def hrrr_update_solar():
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def gfs_backfill():
     file = "src/configs/gfs.toml"
-    mode = "backfill"  # "update", or "backfill"
+    mode = WriteMode.BACKFILL
     since = datetime.utcnow() - timedelta(days=3)
     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
@@ -397,7 +397,7 @@ def gfs_backfill():
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
 def gfs_update_solar():
     file = "src/configs/gfs.toml"
-    mode = "update"  # "update", or "insert"
+    mode = WriteMode.UPDATE
 
     ingest_jobs = parse_toml_config(file)
     driver(mode=mode, ingest_jobs=ingest_jobs)
