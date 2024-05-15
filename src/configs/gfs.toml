@@ -1,0 +1,10 @@
+[job1]
+model = "gfs"
+product = "pgrb2.0p25"
+searches = [
+  "(?:(?:\\:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere):(?:anl|[0-9]* hour fcst)",
+]
+store = "arraylake://earthmover-demos/gfs"
+zarr_group =  "solar/"
+chunks = {longitude = 360, latitude = 120, time = 1, step = 24}
+renames = {TMP="t2m", RH="r2", TCDC="tcc"}

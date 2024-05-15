@@ -10,13 +10,8 @@
 # zarr_group = string e.g. "sfc/fcst"
 # ## Schema
 # chunks = {string: int}, integer chunk size for dimension
+# renames = {str: str}, mapping from variable name in inventory to actual name when read with cfgrib
 
- # - model: gfs
- #   store: "al://earthmover-demos/gfs"
- #   - ingests:
- #     - product: None
- #       zarr_group: "fcst/"
- #       search: ":(?:PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"
 
 [job1]
 model = "hrrr"
@@ -28,16 +23,6 @@ store = "arraylake://earthmover-demos/hrrr"
 zarr_group =  "solar/"
 chunks = {x = 360, y = 120, time = 1, step = 19}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}
-
-# [job2]
-# model = "gfs"
-# product = None
-# store = "arraylake://earthmover-demos/gfs"
-# zarr_group =  "sfc/fcst/"
-# searches = [
-#   "(DSWRF|PRATE):surface:(?=anl|[0-9]* hour fcst)",
-# ]
-# chunks = {x = 360, y = 120, time = 1, step = 24}
 
 # [job2]
 # model = "hrrr"
