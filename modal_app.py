@@ -210,10 +210,9 @@ def write_times(
     zarr_group = zarr.open_group(store)
     ntimes = zarr_group[f"{group}/time"].size
 
-    # FIXME: uncomment this and make sure it works.
     # Workaround for Xarray overwriting group attrs.
     # https://github.com/pydata/xarray/issues/8755
-    # schema.attrs.update(zarr_group.attrs.asdict())
+    schema.attrs.update(zarr_group.attrs.asdict())
 
     logger.info("Writing schema: {schema}")
     schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
