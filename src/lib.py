@@ -154,7 +154,7 @@ class ForecastModel(ABC):
         logger.debug("Searching {}".format(job.ingest.search))
 
         inv = FH.inventory(search=job.ingest.search)
-        if len(inv) != len(job.steps):
+        if inv.forecast_time.nunique() != len(job.steps):
             raise ValueError(f"Not all files are available for job: {job!r}")
 
         paths = FH.download(search=job.ingest.search)
