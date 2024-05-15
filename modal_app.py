@@ -65,7 +65,7 @@ MODAL_FUNCTION_KWARGS = dict(
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
-def initialize(ingest):
+def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
@@ -94,15 +94,16 @@ def backfill(
     *,
     since: TimestampLike,
     till: TimestampLike | None = None,
-):
+) -> None:
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
-    till = till + model.update_freq
+    if till is not None:
+        till = till + model.update_freq
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
-def update(ingest: Ingest):
+def update(ingest: Ingest) -> None:
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
     store = ingest.zarr_store
@@ -197,7 +198,7 @@ def write_times(
         renames=ingest.renames,
     )
     if initialize:
-        logger.info(f"Getting attributes for data variables.")
+        logger.info("Getting attributes for data variables.")
         # Initialize with the right attributes
         dset = model.as_xarray(ingest.search).expand_dims(model.expand_dims)
         if sorted(schema.data_vars) != sorted(dset.data_vars):
@@ -329,7 +330,7 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
     return ingest_jobs
 
 
-def driver(*, mode, ingest_jobs, since, till):
+def driver(*, mode, ingest_jobs, since=None, till=None):
     # Set this here for Arraylake so all tasks start with the same state
     for v in ingest_jobs.values():
         for i in v:
@@ -340,6 +341,12 @@ def driver(*, mode, ingest_jobs, since, till):
         # TODO: assert zarr_store/group is not duplicated
         for_init = tuple(next(iter(v)) for v in ingest_jobs.values())
         list(initialize.map(for_init))
+
+        # initialize commits the schema, so we need to checkout again
+        for v in ingest_jobs.values():
+            for i in v:
+                i.zarr_store = lib.get_zarr_store(i.store)
+
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
     elif mode == "update":
@@ -351,32 +358,14 @@ def driver(*, mode, ingest_jobs, since, till):
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def hrrr_backfill():
+    file = "src/configs/hrrr.toml"
     mode = "backfill"  # "update", or "backfill"
     since = datetime.utcnow() - timedelta(days=3)
     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
-    ingest_jobs = parse_toml_config("src/configs/hrrr.toml")
+    ingest_jobs = parse_toml_config(file)
 
     driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
-
-
-# @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("40 * * * *"))
-# def hrrr_update():
-#     file = "src/configs/hrrr.toml"
-#     mode = "update"  # "update", or "insert"
-#     since = datetime.utcnow() - timedelta(days=3)
-#     till = datetime.utcnow() - timedelta(days=1, hours=12)
-
-#     with open(file, mode="rb") as f:
-#         parsed = tomllib.load(f)
-#     print(parsed)
-
-#     ingests = []
-#     for key, values in parsed.items():
-#         searches = values.pop("searches")
-#         for search in searches:
-#             ingests.append(lib.Ingest(name=key, **values, search=search))
-#     driver(mode=mode, ingests=ingests, since=since, till=till)
 
 
 @app.local_entrypoint()
