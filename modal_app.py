@@ -95,7 +95,7 @@ def backfill(
     since: TimestampLike,
     till: TimestampLike | None = None,
 ) -> None:
-    logger.info("backfill: Calling write_times for ingest {}".format(ingest))
+    logger.info("backfill: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
@@ -104,6 +104,7 @@ def backfill(
 
 @app.function(**MODAL_FUNCTION_KWARGS)
 def update(ingest: Ingest) -> None:
+    logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
     store = ingest.zarr_store
