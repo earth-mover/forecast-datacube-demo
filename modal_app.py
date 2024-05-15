@@ -71,6 +71,11 @@ def initialize(ingest):
     group = ingest.zarr_group
     store = ingest.zarr_store
 
+    if ingest.chunks[model.runtime_dim] != 1:
+        raise NotImplementedError(
+            "Chunk size along the {model.runtime_dim!r} dimensions must be 1."
+        )
+
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = (
         model.create_schema(chunksizes=ingest.chunks, search=ingest.search, renames=ingest.renames)
@@ -212,11 +217,19 @@ def write_times(
     # figure out total number of timestamps in store.
     ntimes = zarr.open_group(store)[f"{group}/time"].size
 
+    step_hours = (schema.indexes["step"].seconds / 3600).astype(int).tolist()
+
+    if ingest.chunks[model.runtime_dim] != 1:
+        raise NotImplementedError
+
     time_and_steps = itertools.chain(
         *(
             itertools.product(
                 (t,),
-                lib.batched(model.get_steps(t - t.floor("D")), n=ingest.chunks[model.step_dim]),
+                lib.batched(
+                    (step for step in model.get_steps(t - t.floor("D")) if step in step_hours),
+                    n=ingest.chunks[model.step_dim],
+                ),
             )
             for t in available_times
         )
@@ -255,9 +268,7 @@ def write_herbie(job, *, schema, ntimes=None):
     try:
         ds = (
             model.open_herbie(job)
-            # We *should* only be processing in a single Zarr group chunksize
-            # number of steps
-            .chunk(step=-1)
+            .chunk(step=ingest.chunks["step"])
             # TODO: transpose_like(schema)
             .transpose(*model.dim_order)
         )
