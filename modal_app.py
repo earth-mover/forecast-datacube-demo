@@ -319,6 +319,13 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
 
     ingest_jobs = defaultdict(list)
     for key, values in parsed.items():
+        model = models.get_model(values["model"])
+        if unknown_dims := (set(values["chunks"]) - set(model.dim_order)):
+            raise ValueError(
+                f"Unrecognized dimension names in chunks: {unknown_dims}. "
+                f"Expected {model.dim_order!r}."
+            )
+
         searches = values.pop("searches")
         for search in searches:
             ingest_jobs[key].append(lib.Ingest(name=key, **values, search=search))
