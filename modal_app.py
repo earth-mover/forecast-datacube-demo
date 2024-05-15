@@ -218,7 +218,7 @@ def write_times(
     logger.info("Writing schema: {}".format(schema))
     schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
 
-    step_hours = (schema.indexes["step"].seconds / 3600).astype(int).tolist()
+    step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError
