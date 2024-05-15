@@ -214,7 +214,7 @@ def write_times(
     # https://github.com/pydata/xarray/issues/8755
     schema.attrs.update(zarr_group.attrs.asdict())
 
-    logger.info("Writing schema: {schema}")
+    logger.info("Writing schema: {}".format(schema))
     schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
 
     step_hours = (schema.indexes["step"].seconds / 3600).astype(int).tolist()
@@ -313,7 +313,7 @@ def write_herbie(job, *, schema, ntimes=None):
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
 
-    logger.info("Finished job {}. Took {} sconds".format(job, time.time() - tic))
+    logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
     return ds.step
 
 

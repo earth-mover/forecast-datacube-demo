@@ -161,7 +161,7 @@ class ForecastModel(ABC):
 
         # May not be complete yet.
         steps = self.get_steps(HL.date)
-        FH = FastHerbie([HL.date], model="hrrr", product="sfc", fxx=steps)
+        FH = FastHerbie([HL.date], model=ingest.model, product=ingest.product, fxx=steps)
         n_actual_steps = FH.inventory(ingest.search).forecast_time.nunique()
         if n_actual_steps != len(steps):
             latest_available = HL.date - self.update_freq
