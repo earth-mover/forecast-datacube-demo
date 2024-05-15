@@ -168,6 +168,10 @@ class GFS(ForecastModel):
         schema["step"].encoding["units"] = "hours"
         schema["step"].attrs["standard_name"] = "forecast_period"
 
+        schema.attrs = {
+            "description": "GFS data ingested for forecasting demo",
+        }
+
         if search is None:
             return schema
 
