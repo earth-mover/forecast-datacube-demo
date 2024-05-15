@@ -207,9 +207,7 @@ def write_times(
         for name, var in dset.data_vars.items():
             schema[name].attrs = var.attrs
 
-    # 1. figure out total number of timestamps in store.
-    zarr_group = zarr.open_group(store)
-    ntimes = zarr_group[f"{group.removesuffix('/')}/time"].size
+    zarr_group = zarr.open_group(store)[group]
 
     # Workaround for Xarray overwriting group attrs.
     # https://github.com/pydata/xarray/issues/8755
@@ -242,6 +240,8 @@ def write_times(
         for ingest, (time, steps) in itertools.product([ingest], time_and_steps)
     )
 
+    # 1. figure out total number of timestamps in store.
+    ntimes = zarr_group[model.runtime_dim].size
     list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
     logger.info("Finished write job for {}.".format(ingest))
