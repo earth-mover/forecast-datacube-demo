@@ -21,13 +21,23 @@
 [job1]
 model = "hrrr"
 product = "sfc"
-store = "arraylake://earthmover-demos/hrrr-3"
-zarr_group =  "sfc/fcst2/"
 searches = [
-  "DSWRF:surface:(?=anl|[0-9]* hour fcst)",
-  "PRATE:surface:(?=anl|[0-9]* hour fcst)",
+  "(?:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere",
 ]
-chunks = {x = 360, y = 120,time = 1,step = 19}
+store = "arraylake://earthmover-demos/hrrr"
+zarr_group =  "solar/"
+chunks = {x = 360, y = 120, time = 1, step = 19}
+renames = {TMP="t2m", RH="r2", TCDC="tcc"}
+
+# [job2]
+# model = "gfs"
+# product = None
+# store = "arraylake://earthmover-demos/gfs"
+# zarr_group =  "sfc/fcst/"
+# searches = [
+#   "(DSWRF|PRATE):surface:(?=anl|[0-9]* hour fcst)",
+# ]
+# chunks = {x = 360, y = 120, time = 1, step = 24}
 
 # [job2]
 # model = "hrrr"
@@ -37,10 +47,13 @@ chunks = {x = 360, y = 120,time = 1,step = 19}
 # search = d[":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?:anl|[0-9]* hour fcst)"
 # chunks={x = 360, y = 120, time = 1, step = 19}
 
+# TODO: This is unsupported currently
 # [job3]
 # model = "hrrr"
 # product = "sfc"
 # store = "arraylake://earthmover-demos/hrrr-3"
 # zarr_group =  "sfc/rechunked/"
-# search = ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?=\\banl|6|12|18\\b)"
-# chunks = {x = 360,y = 120,time = 24, step = 1}
+# searches = [
+#   ":(?:DSWRF|PRATE|[UV]GRD):(?:surface|1000 mb):(?=\\banl|6|12|18\\b)",
+# ]
+# chunks = {x = 360, y = 120, time = 24, step = 1}

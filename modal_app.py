@@ -368,6 +368,15 @@ def hrrr_backfill():
     driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
 
 
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
+def hrrr_update_solar():
+    file = "src/configs/hrrr.toml"
+    mode = "update"  # "update", or "insert"
+
+    ingest_jobs = parse_toml_config(file)
+    driver(mode=mode, ingest_jobs=ingest_jobs)
+
+
 @app.local_entrypoint()
 def main():
     hrrr_backfill.remote()
