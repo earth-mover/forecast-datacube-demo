@@ -73,7 +73,7 @@ def initialize(ingest):
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = (
-        model.create_schema(chunksizes=ingest.chunks)
+        model.create_schema(chunksizes=ingest.chunks, search=ingest.search, renames=ingest.renames)
         .coords.to_dataset()
         .drop_dims([model.runtime_dim])
     )
@@ -93,7 +93,7 @@ def backfill(
     logger.info("backfill: Calling write_times for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     till = till + model.update_freq
-    write_times(since=since, till=till, ingest=ingest, mode="a")
+    write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
@@ -147,7 +147,14 @@ def update(ingest: Ingest):
     write_times(since=since, till=till, mode="a-", append_dim=model.runtime_dim, ingest=ingest)
 
 
-def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
+def write_times(
+    *,
+    since: pd.Timestamp,
+    till: pd.Timestamp | None,
+    ingest: Ingest,
+    initialize: bool = False,
+    **write_kwargs,
+) -> None:
     """
     Writes data for a range of times to the store.
 
@@ -179,8 +186,24 @@ def write_times(*, since, till=None, ingest: Ingest, **write_kwargs):
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
 
     schema = model.create_schema(
-        times=available_times, search=ingest.search, chunksizes=ingest.chunks
+        times=available_times,
+        search=ingest.search,
+        chunksizes=ingest.chunks,
+        renames=ingest.renames,
     )
+    if initialize:
+        logger.info(f"Getting attributes for data variables.")
+        # Initialize with the right attributes
+        dset = model.as_xarray(ingest.search).expand_dims(model.expand_dims)
+        if sorted(schema.data_vars) != sorted(dset.data_vars):
+            raise ValueError(
+                "Please add or update the `renames` field for this job in the TOML file. "
+                f"Constructed schema expects data_vars={tuple(schema.data_vars)!r}. "
+                f"Loaded data has data_vars={tuple(dset.data_vars)!r}"
+            )
+        for name, var in dset.data_vars.items():
+            schema[name].attrs = var.attrs
+
     logger.info(f"schema {schema}")
 
     logger.info("Writing schema")
