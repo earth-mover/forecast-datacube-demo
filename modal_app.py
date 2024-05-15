@@ -115,12 +115,14 @@ def update(ingest: Ingest) -> None:
     else:
         instore = xr.open_zarr(store, group=group)
 
-    latest = model.latest()
+    latest_available_date = model.latest_available(ingest)
     latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
-    if latest_in_store == latest.date:
+    if latest_in_store == latest_available_date:
         # already ingested
         logger.info(
-            "No new data. Latest data {}; Latest in-store: {}".format(latest.date, latest_in_store)
+            "No new data. Latest data {}; Latest in-store: {}".format(
+                latest_available_date, latest_in_store
+            )
         )
         return
 
@@ -129,27 +131,18 @@ def update(ingest: Ingest) -> None:
         + model.update_freq
     )
 
-    num_latest = len(latest.inventory(ingest.search))
-    if since == latest.date and num_latest == 1:
-        logger.info(
-            "Skipping since latest data not complete. Latest data {}; Latest in-store: {}".format(
-                latest.date, latest_in_store
-            )
+    # Our interval is left-closed [since, till) but latest_available_date must be included
+    # So adjust `till`
+    till = latest_available_date + model.update_freq
+    logger.info("Latest data not complete but there is data to ingest. ")
+
+    logger.info(
+        "update: There is data to ingest. "
+        "Latest data {}; Latest in-store: {}. "
+        "Calling write_times for data since {} till {}".format(
+            latest_available_date, latest_in_store, since, till
         )
-        return
-
-    # Our interval is left-closed [since, till) so adjust if we know latest data are present
-    till = latest.date
-    if num_latest != 1:
-        till += model.update_freq
-    else:
-        logger.info(
-            "Latest data not complete but there is data to ingest. "
-            " Latest data {}; Latest in-store: {}".format(latest.date, latest_in_store)
-        )
-
-    logger.info("update: Calling write_times for data since {} till {}".format(since, till))
-
+    )
     write_times(since=since, till=till, mode="a-", append_dim=model.runtime_dim, ingest=ingest)
 
 
@@ -197,9 +190,12 @@ def write_times(
         chunksizes=ingest.chunks,
         renames=ingest.renames,
     )
+    # Drop time-invariant variables to prevent conflicts
+    to_drop = [name for name, var in schema.variables.items() if model.runtime_dim not in var.dims]
+
     if initialize:
+        # Initialize with the right attributes. We do not update these after initialization
         logger.info("Getting attributes for data variables.")
-        # Initialize with the right attributes
         dset = model.as_xarray(ingest.search).expand_dims(model.expand_dims)
         if sorted(schema.data_vars) != sorted(dset.data_vars):
             raise ValueError(
@@ -210,13 +206,17 @@ def write_times(
         for name, var in dset.data_vars.items():
             schema[name].attrs = var.attrs
 
-    logger.info(f"schema {schema}")
+    # 1. figure out total number of timestamps in store.
+    zarr_group = zarr.open_group(store)
+    ntimes = zarr_group[f"{group}/time"].size
 
-    logger.info("Writing schema")
-    schema.to_zarr(store, group=group, **write_kwargs, compute=False)
+    # FIXME: uncomment this and make sure it works.
+    # Workaround for Xarray overwriting group attrs.
+    # https://github.com/pydata/xarray/issues/8755
+    # schema.attrs.update(zarr_group.attrs.asdict())
 
-    # figure out total number of timestamps in store.
-    ntimes = zarr.open_group(store)[f"{group}/time"].size
+    logger.info("Writing schema: {schema}")
+    schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
 
     step_hours = (schema.indexes["step"].seconds / 3600).astype(int).tolist()
 
@@ -228,7 +228,7 @@ def write_times(
             itertools.product(
                 (t,),
                 lib.batched(
-                    (step for step in model.get_steps(t - t.floor("D")) if step in step_hours),
+                    (step for step in model.get_steps(t) if step in step_hours),
                     n=ingest.chunks[model.step_dim],
                 ),
             )

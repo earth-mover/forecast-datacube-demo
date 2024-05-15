@@ -118,6 +118,10 @@ class ForecastModel(ABC):
         return data_vars
 
     def get_steps_for_search(self, search: str) -> list[int]:
+        """
+        These are `fxx` or `step` values available for this particular search.
+        We have to execute the `search` in case the search string constrains the step values.
+        """
         from herbie import FastHerbie
 
         time = pd.Timestamp("2023-01-01")
@@ -128,6 +132,9 @@ class ForecastModel(ABC):
     def get_available_times(
         self, since: TimestampLike, till: TimestampLike | None = None
     ) -> pd.DatetimeIndex:
+        """
+        These are expected timestamps that are available for this particular model.
+        """
         if till is None:
             till = datetime.utcnow()
         since = pd.Timestamp(since).floor(self.update_freq)  # type: ignore[arg-type]
@@ -137,10 +144,34 @@ class ForecastModel(ABC):
             raise RuntimeError(f"No data available for time range {since!r} to {till!r}")
         return available_times
 
-    def latest(self):
-        from herbie import HerbieLatest
+    def latest_available(self, ingest: Ingest) -> pd.Timestamp:
+        """
+        Find the latest data we can ingest.
+        1. First use HerbieLatest to grab the latest available `.idx` file.
+        2. Then repeat the search to make sure we have all expected time steps.
+        3. If not, we assume the previous timestep is the latest complete dataset
+           (Note we do not verify this by repeating the search.)
 
-        return HerbieLatest(model=self.name)
+        This method is a bit wasteful, but makes the pipeline more robust.
+        """
+        from herbie import FastHerbie, HerbieLatest
+
+        # Get the latest idx
+        HL = HerbieLatest(model=self.name, product=ingest.product)
+
+        # May not be complete yet.
+        steps = self.get_steps(HL.date)
+        FH = FastHerbie([HL.date], model="hrrr", product="sfc", fxx=steps)
+        n_actual_steps = FH.inventory(ingest.search).forecast_time.nunique()
+        if n_actual_steps != len(steps):
+            latest_available = HL.date - self.update_freq
+            logger.info(
+                f"Data not complete for date={HL.date!r}. "
+                f"Processing till previous update {latest_available!r}"
+            )
+        else:
+            latest_available = HL.date
+        return latest_available
 
     def open_herbie(self, job: Job) -> xr.Dataset:
         from herbie import FastHerbie
