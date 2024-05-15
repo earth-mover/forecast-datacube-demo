@@ -118,6 +118,11 @@ class HRRR(ForecastModel):
             {"standard_name": "latitude", "units": "degrees_north"},
         )
 
+        schema.attrs = {
+            "coordinates": "latitude longitude",
+            "description": "HRRR data ingested for forecasting demo",
+        }
+
         if search is None:
             return schema
 
