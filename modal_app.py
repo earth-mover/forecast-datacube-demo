@@ -379,9 +379,30 @@ def hrrr_update_solar():
     driver(mode=mode, ingest_jobs=ingest_jobs)
 
 
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+def gfs_backfill():
+    file = "src/configs/gfs.toml"
+    mode = "backfill"  # "update", or "backfill"
+    since = datetime.utcnow() - timedelta(days=3)
+    till = datetime.utcnow() - timedelta(days=1, hours=12)
+
+    ingest_jobs = parse_toml_config(file)
+
+    driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
+def gfs_update_solar():
+    file = "src/configs/gfs.toml"
+    mode = "update"  # "update", or "insert"
+
+    ingest_jobs = parse_toml_config(file)
+    driver(mode=mode, ingest_jobs=ingest_jobs)
+
+
 @app.local_entrypoint()
 def main():
-    hrrr_backfill.remote()
+    gfs_backfill.remote()
     # Command-line kwargs
     # modal_mode = "run"
 
