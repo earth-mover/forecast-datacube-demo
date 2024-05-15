@@ -196,7 +196,12 @@ class ForecastModel(ABC):
             .expand_dims("time")
             .sortby("step")
         )
-        return ds
+
+        counts = ds.count("step").compute()
+        if not (counts == len(job.steps)).to_array().all().item():
+            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}")
+
+        return ds.chunk(step=job.ingest.chunks["step"]).transpose(*self.dim_order)
 
 
 def batched(iterable, n):

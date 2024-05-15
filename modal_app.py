@@ -266,12 +266,7 @@ def write_herbie(job, *, schema, ntimes=None):
 
     logger.debug("Processing job {}".format(job))
     try:
-        ds = (
-            model.open_herbie(job)
-            .chunk(step=ingest.chunks["step"])
-            # TODO: transpose_like(schema)
-            .transpose(*model.dim_order)
-        )
+        ds = model.open_herbie(job)
 
         ##############################
         ###### manually get region to avoid each task reading in the same vector
