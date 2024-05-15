@@ -24,7 +24,7 @@ class GFS(ForecastModel):
     update_freq = timedelta(hours=6)
     dim_order = ("longitude", "latitude", "time", "step")
 
-    def get_steps(self, time: pd.Timestamp, search: str) -> Sequence:
+    def get_steps(self, time: pd.Timestamp) -> Sequence:
         return list(range(0, 120)) + list(range(120, 385, 3))
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
@@ -149,7 +149,7 @@ class GFS(ForecastModel):
         else:
             schema["step"] = (
                 "step",
-                pd.to_timedelta(self.get_steps_for_search(search), unit="hours"),
+                pd.to_timedelta(self.get_steps_for_search(search), unit="hours"),  # type: ignore
             )
 
         schema["longitude"].encoding.update(
