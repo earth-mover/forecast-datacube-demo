@@ -209,7 +209,7 @@ def write_times(
 
     # 1. figure out total number of timestamps in store.
     zarr_group = zarr.open_group(store)
-    ntimes = zarr_group[f"{group}/time"].size
+    ntimes = zarr_group[f"{group.removesuffix('/')}/time"].size
 
     # Workaround for Xarray overwriting group attrs.
     # https://github.com/pydata/xarray/issues/8755
