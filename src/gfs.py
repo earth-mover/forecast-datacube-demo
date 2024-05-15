@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import RENAME_VARS, ForecastModel, open_single_grib
+from .lib import ForecastModel, open_single_grib
 
 logger = lib.get_logger()
 
@@ -24,7 +24,7 @@ class GFS(ForecastModel):
     update_freq = timedelta(hours=6)
     dim_order = ("longitude", "latitude", "time", "step")
 
-    def get_steps(self, time: pd.Timestamp) -> Sequence:
+    def get_steps(self, time: pd.Timestamp, search: str) -> Sequence:
         return list(range(0, 120)) + list(range(120, 385, 3))
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
@@ -112,7 +112,12 @@ class GFS(ForecastModel):
         )
 
     def create_schema(
-        self, chunksizes: dict[str, int], *, search: str | None = None, times=None
+        self,
+        chunksizes: dict[str, int],
+        *,
+        renames: dict[str, str] | None,
+        search: str | None = None,
+        times=None,
     ) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
@@ -131,11 +136,21 @@ class GFS(ForecastModel):
             {"standard_name": "longitude", "units": "degrees_east"},
         )
         schema["time"] = ("time", times, {"standard_name": "forecast_reference_time"})
-        schema["step"] = (
-            "step",
-            pd.to_timedelta(self.get_steps(pd.Timestamp(datetime.utcnow())), unit="hours"),
-            {"standard_name": "forecast_period"},
-        )
+        if search is not None:
+            schema["step"] = (
+                "step",
+                pd.to_timedelta(self.get_steps(pd.Timestamp(datetime.utcnow())), unit="hours"),
+            )
+            schema["step"].encoding.update(
+                lib.optimize_coord_encoding(
+                    (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
+                )
+            )
+        else:
+            schema["step"] = (
+                "step",
+                pd.to_timedelta(self.get_steps_for_search(search), unit="hours"),
+            )
 
         schema["longitude"].encoding.update(
             lib.optimize_coord_encoding(schema["latitude"].data, dx=-0.25, is_regular=True)
@@ -149,22 +164,16 @@ class GFS(ForecastModel):
 
         schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
 
-        schema["step"].encoding.update(
-            lib.optimize_coord_encoding(
-                (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
-            )
-        )
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
+        schema["step"].attrs["standard_name"] = "forecast_period"
 
         if search is None:
             return schema
 
-        data_var_list = self.get_data_vars(search)
         shape = tuple(schema.sizes[dim] for dim in self.dim_order)
         chunks = tuple(chunksizes[dim] for dim in self.dim_order)
-        for name in data_var_list:
-            name = RENAME_VARS.get(name, name).lower()
+        for name in self.get_data_vars(search=search, renames=renames):
             schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
         return schema

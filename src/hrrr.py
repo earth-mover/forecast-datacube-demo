@@ -7,7 +7,7 @@ import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import RENAME_VARS, ForecastModel
+from .lib import ForecastModel
 
 logger = lib.get_logger()
 
@@ -70,7 +70,12 @@ class HRRR(ForecastModel):
             return range(19)
 
     def create_schema(
-        self, chunksizes: dict[str, int], *, search: str | None = None, times=None
+        self,
+        chunksizes: dict[str, int],
+        *,
+        renames: dict[str, str] | None = None,
+        search: str | None = None,
+        times=None,
     ) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
@@ -80,16 +85,22 @@ class HRRR(ForecastModel):
 
         schema = xr.Dataset()
 
-        schema["time"] = ("time", times)
+        schema["time"] = ("time", times, {"standard_name": "forecast_reference_time"})
         schema["time"].encoding.update(lib.create_time_encoding(self.update_freq))
-        schema["time"].attrs["standard_name"] = "forecast_reference_time"
 
-        schema["step"] = ("step", pd.to_timedelta(np.arange(49), unit="hours"))
-        schema["step"].encoding.update(
-            lib.optimize_coord_encoding(
-                (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
+        if search is None:
+            schema["step"] = ("step", pd.to_timedelta(np.arange(49), unit="hours"))
+            schema["step"].encoding.update(
+                lib.optimize_coord_encoding(
+                    (schema.step.data / 1e9 / 3600).astype(int), dx=1, is_regular=False
+                )
             )
-        )
+        else:
+            schema["step"] = (
+                "step",
+                pd.to_timedelta(self.get_steps_for_search(search), unit="hour"),
+            )
+
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
         schema["step"].attrs["standard_name"] = "forecast_period"
@@ -112,8 +123,7 @@ class HRRR(ForecastModel):
 
         shape = tuple(schema.sizes[dim] for dim in self.dim_order)
         chunks = tuple(chunksizes[dim] for dim in self.dim_order)
-        for name in self.get_data_vars(search):
-            name = RENAME_VARS.get(name, name).lower()
+        for name in self.get_data_vars(search, renames=renames):
             schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
             schema[name].encoding["write_empty_chunks"] = False

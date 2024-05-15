@@ -14,7 +14,6 @@ import pandas as pd
 import xarray as xr
 import zarr
 
-RENAME_VARS = {"UGRD": "u", "VGRD": "v"}
 TimestampLike = Any
 
 
@@ -47,6 +46,7 @@ class Ingest:
     zarr_group: str
     search: str
     chunks: dict[str, int]
+    renames: list[str] | None = None
     zarr_store: Any = None
 
 
@@ -73,7 +73,12 @@ class ForecastModel(ABC):
 
     @abstractmethod
     def create_schema(
-        self, chunksizes: dict[str, int], *, search: str | None = None, times=None
+        self,
+        chunksizes: dict[str, int],
+        *,
+        renames: dict[str, str] | None,
+        search: str | None = None,
+        times=None,
     ) -> xr.Dataset:
         """Create schema with chunking for on-disk storage."""
         pass
@@ -83,20 +88,42 @@ class ForecastModel(ABC):
         """Get available forecast steps or 'fxx' for this model run timestamp."""
         pass
 
-    def get_data_vars(self, search: str) -> Iterable[str]:
+    def as_xarray(self, search: str) -> xr.Dataset:
         """
-        Get available data_vars for the schema.
+        Creates an Xarray dataset for a search. Necessary for populating attributes
+        in the schema.
+        """
+        from herbie import Herbie
+
+        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        dset = H.xarray(search)
+        if isinstance(dset, list):
+            dset = xr.merge(dset)
+        return dset
+
+    def get_data_vars(self, search: str, renames: dict[str, str] | None = None) -> Iterable[str]:
+        """
+        Get available data_vars for the schema by inspecting the inventory
+        (or idx file).
         """
         from herbie import Herbie
 
         H = Herbie("2023-01-01", model=self.name, fxx=0)
         data_vars = [
-            name
+            renames.get(name, name).lower() if renames is not None else name
             for name in H.inventory(search).variable.unique()
             # funny unknown HRRR variable
             if not name.startswith("var discipline=")
         ]
         return data_vars
+
+    def get_steps_for_search(self, search: str) -> list[int]:
+        from herbie import FastHerbie
+
+        time = pd.Timestamp("2023-01-01")
+        H = FastHerbie([time], model=self.name, fxx=self.get_steps(time))
+        unique_steps = H.inventory(search).forecast_time.unique()
+        return [0 if s == "anl" else int(s.removesuffix(" hour fcst")) for s in unique_steps]
 
     def get_available_times(
         self, since: TimestampLike, till: TimestampLike | None = None
