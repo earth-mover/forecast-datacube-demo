@@ -44,10 +44,24 @@ class Ingest:
     product: str
     store: str
     zarr_group: str
-    search: str
+    searches: Sequence[str]
     chunks: dict[str, int]
     renames: list[str] | None = None
     zarr_store: Any = None
+
+    def __iter__(self):
+        for search in self.searches:
+            yield type(self)(
+                searches=[search],
+                name=self.name,
+                model=self.model,
+                product=self.product,
+                store=self.store,
+                zarr_group=self.zarr_group,
+                chunks=self.chunks,
+                renames=self.renames,
+                zarr_store=self.zarr_store,
+            )
 
 
 @dataclass
@@ -156,13 +170,14 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie, HerbieLatest
 
+        (search,) = ingest.searches
         # Get the latest idx
         HL = HerbieLatest(model=self.name, product=ingest.product)
 
         # May not be complete yet.
         steps = self.get_steps(HL.date)
         FH = FastHerbie([HL.date], model=ingest.model, product=ingest.product, fxx=steps)
-        n_actual_steps = FH.inventory(ingest.search).forecast_time.nunique()
+        n_actual_steps = FH.inventory(search).forecast_time.nunique()
         if n_actual_steps != len(steps):
             latest_available = HL.date - self.update_freq
             logger.info(
@@ -182,13 +197,14 @@ class ForecastModel(ABC):
             model=self.name,
             product=job.ingest.product,
         )
-        logger.debug("Searching {}".format(job.ingest.search))
+        (search,) = job.ingest.searches
+        logger.debug("Searching {}".format(search))
 
-        inv = FH.inventory(search=job.ingest.search)
+        inv = FH.inventory(search=search)
         if inv.forecast_time.nunique() != len(job.steps):
             raise ValueError(f"Not all files are available for job: {job!r}")
 
-        paths = FH.download(search=job.ingest.search)
+        paths = FH.download(search=search)
         logger.debug("Downloaded paths {}".format(paths))  #
 
         ds = (

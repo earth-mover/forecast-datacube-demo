@@ -1,9 +1,8 @@
 import itertools
 import logging
 import time
-from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Sequence
 
 import arraylake as al
 import modal
@@ -61,6 +60,10 @@ MODAL_FUNCTION_KWARGS = dict(
 )
 
 
+def merge_searches(searches: Sequence[str]) -> str:
+    return "|".join(searches)
+
+
 #############
 
 
@@ -78,7 +81,11 @@ def initialize(ingest) -> None:
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = (
-        model.create_schema(chunksizes=ingest.chunks, search=ingest.search, renames=ingest.renames)
+        model.create_schema(
+            chunksizes=ingest.chunks,
+            search=merge_searches(ingest.searches),
+            renames=ingest.renames,
+        )
         .coords.to_dataset()
         .drop_dims([model.runtime_dim])
     )
@@ -187,7 +194,7 @@ def write_times(
 
     schema = model.create_schema(
         times=available_times,
-        search=ingest.search,
+        search=merge_searches(ingest.searches),
         chunksizes=ingest.chunks,
         renames=ingest.renames,
     )
@@ -197,7 +204,7 @@ def write_times(
     if initialize:
         # Initialize with the right attributes. We do not update these after initialization
         logger.info("Getting attributes for data variables.")
-        dset = model.as_xarray(ingest.search).expand_dims(model.expand_dims)
+        dset = model.as_xarray(merge_searches(ingest.searches)).expand_dims(model.expand_dims)
         if sorted(schema.data_vars) != sorted(dset.data_vars):
             raise ValueError(
                 "Please add or update the `renames` field for this job in the TOML file. "
@@ -234,10 +241,10 @@ def write_times(
         )
     )
 
-    logger.info("Starting write job for {}.".format(ingest.search))
+    logger.info("Starting write job for {}.".format(ingest.searches))
     all_jobs = (
         lib.Job(runtime=time, steps=steps, ingest=ingest)
-        for ingest, (time, steps) in itertools.product([ingest], time_and_steps)
+        for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
     )
 
     # 1. figure out total number of timestamps in store.
@@ -249,7 +256,8 @@ def write_times(
         store._repo.commit(
             f"""
             Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
-            Data: {ingest.model}, {ingest.product}, {ingest.search}.\n
+            Data: {ingest.model}, {ingest.product} \n
+            Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
         )
@@ -317,7 +325,7 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
     with open(file, mode="rb") as f:
         parsed = tomllib.load(f)
 
-    ingest_jobs = defaultdict(list)
+    ingest_jobs = {}
     for key, values in parsed.items():
         model = models.get_model(values["model"])
         if unknown_dims := (set(values["chunks"]) - set(model.dim_order)):
@@ -325,18 +333,14 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
                 f"Unrecognized dimension names in chunks: {unknown_dims}. "
                 f"Expected {model.dim_order!r}."
             )
-
-        searches = values.pop("searches")
-        for search in searches:
-            ingest_jobs[key].append(lib.Ingest(name=key, **values, search=search))
+        ingest_jobs[key] = Ingest(name=key, **values)
     return ingest_jobs
 
 
 def driver(*, mode, ingest_jobs, since=None, till=None):
     # Set this here for Arraylake so all tasks start with the same state
-    for v in ingest_jobs.values():
-        for i in v:
-            i.zarr_store = lib.get_zarr_store(i.store)
+    for i in ingest_jobs.values():
+        i.zarr_store = lib.get_zarr_store(i.store)
 
     ingests = itertools.chain(*ingest_jobs.values())
     if mode == "backfill":
@@ -345,9 +349,8 @@ def driver(*, mode, ingest_jobs, since=None, till=None):
         list(initialize.map(for_init))
 
         # initialize commits the schema, so we need to checkout again
-        for v in ingest_jobs.values():
-            for i in v:
-                i.zarr_store = lib.get_zarr_store(i.store)
+        for i in ingest_jobs.values():
+            i.zarr_store = lib.get_zarr_store(i.store)
 
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
