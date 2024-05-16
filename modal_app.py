@@ -67,7 +67,6 @@ def merge_searches(searches: Sequence[str]) -> str:
 #############
 
 
-@app.function(**MODAL_FUNCTION_KWARGS)
 def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
@@ -106,10 +105,11 @@ def backfill(
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
+    initialize(ingest)
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
 
-@app.function(**MODAL_FUNCTION_KWARGS)
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
@@ -263,7 +263,7 @@ def write_times(
         )
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=3)
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=600, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
 
@@ -339,19 +339,12 @@ def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
 
 def driver(*, mode: WriteMode, ingest_jobs: dict[str, Ingest], since=None, till=None) -> None:
     # Set this here for Arraylake so all tasks start with the same state
-    for i in ingest_jobs.values():
+    ingests = ingest_jobs.values()
+    for i in ingests:
         i.zarr_store = lib.get_zarr_store(i.store)
 
-    ingests = itertools.chain(*ingest_jobs.values())
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
-        for_init = tuple(next(iter(v)) for v in ingest_jobs.values())
-        list(initialize.map(for_init))
-
-        # initialize commits the schema, so we need to checkout again
-        for i in ingest_jobs.values():
-            i.zarr_store = lib.get_zarr_store(i.store)
-
         list(backfill.map(ingests, kwargs={"since": since, "till": till}))
 
     elif mode is WriteMode.UPDATE:
