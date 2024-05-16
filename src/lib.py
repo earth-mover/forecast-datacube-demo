@@ -176,7 +176,11 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie, HerbieLatest
 
-        (search,) = ingest.searches
+        # TODO: Think about whether we need to execute the search to undersand availability
+        # Right now we just see if all the `.idx` files exist for the steps we want.
+        # Since one Ingest references one `product` at the moment, this seems OK.
+        # If we allow multiple products in a single Ingest, then we might have to do something.
+        # (search,) = ingest.searches
         # Get the latest idx
         HL = HerbieLatest(model=self.name, product=ingest.product)
 
