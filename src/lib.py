@@ -130,7 +130,7 @@ class ForecastModel(ABC):
 
         H = Herbie("2023-01-01", model=self.name, fxx=0)
         data_vars = [
-            renames.get(name, name).lower() if renames is not None else name
+            renames.get(name, name.lower()) if renames is not None else name
             for name in H.inventory(search).variable.unique()
             # funny unknown HRRR variable
             if not name.startswith("var discipline=")
