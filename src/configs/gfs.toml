@@ -2,6 +2,17 @@
 model = "gfs"
 product = "pgrb2.0p25"
 searches = [
+  "(?:(?:\\:TMP|RH):2 m above ground|(?:GUST|PRATE):surface|TCDC:entire atmosphere):(?:anl|[0-9]* hour fcst)",
+]
+store = "arraylake://earthmover-demos/gfs"
+zarr_group =  "solar/"
+chunks = {longitude = 360, latitude = 120, time = 1, step = 24}
+renames = {TMP="t2m", RH="r2", TCDC="tcc"}
+
+[job2]
+model = "gfs"
+product = "pgrb2.0p25"
+searches = [
   ":TMP:2 m above ground:(?:anl|[0-9]* hour fcst)",
   ":RH:2 m above ground:(?:anl|[0-9]* hour fcst)",
   ":GUST:surface:(?:anl|[0-9]* hour fcst)",

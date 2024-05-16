@@ -387,7 +387,7 @@ def gfs_backfill():
     driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 0,6,12,18 * *"))
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 0,6,12,18 * * *"))
 def gfs_update_solar():
     file = "src/configs/gfs.toml"
     mode = WriteMode.UPDATE
