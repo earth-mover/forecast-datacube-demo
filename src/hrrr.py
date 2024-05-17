@@ -59,7 +59,7 @@ class HRRR(ForecastModel):
         x, y = np.meshgrid(np.arange(x0, x0 + dx * Nx, dx), np.arange(y0, y0 + dy * Ny, dy))
         lon, lat = transformer.transform(x, y)
         lon += 360
-        return lat, lon
+        return lat.astype("float32"), lon.astype("float32")
 
     def get_steps(self, time: pd.Timestamp) -> Sequence:
         # 48 hour forecasts every 6 hours, 18 hour forecasts otherwise
@@ -117,6 +117,8 @@ class HRRR(ForecastModel):
             lat,
             {"standard_name": "latitude", "units": "degrees_north"},
         )
+        schema.latitude.encoding["chunks"] = schema.latitude.shape
+        schema.longitude.encoding["chunks"] = schema.longitude.shape
 
         schema.attrs = {
             "coordinates": "latitude longitude",
