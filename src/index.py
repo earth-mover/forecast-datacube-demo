@@ -306,7 +306,5 @@ class ForecastIndex(Index):
         )
 
     def __repr__(self):
-        string = (
-            f"<ForecastIndex along [{', '.join([self.dummy_name] + list(self.names.values()))}]>"
-        )
+        string = f"<ForecastIndex along [{', '.join(self.dummy_name, *self.names.values())}]>"
         return string

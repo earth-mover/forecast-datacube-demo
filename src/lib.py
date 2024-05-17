@@ -210,14 +210,14 @@ class ForecastModel(ABC):
             priority="aws",
         )
         (search,) = job.ingest.searches
-        logger.debug("Searching {}".format(search))
+        logger.debug("Searching %s", search)
 
         inv = FH.inventory(search=search)
         if inv.forecast_time.nunique() != len(job.steps):
             raise ValueError(f"Not all files are available for job: {job!r}")
 
         paths = FH.download(search=search)
-        logger.debug("Downloaded paths {}".format(paths))  #
+        logger.debug("Downloaded paths {}".format(paths))
 
         ds = (
             xr.open_mfdataset(sorted(paths), combine="nested", concat_dim="step", engine="cfgrib")

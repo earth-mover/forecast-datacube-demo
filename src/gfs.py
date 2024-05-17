@@ -69,7 +69,7 @@ class GFS(ForecastModel):
             kwargs["filter_by_keys"] = filter_by_keys
         tic = time.time()
         ds = open_single_grib(uri, expand_dims=expand_dims, drop_vars=drop_vars, **kwargs)
-        logger.debug(f"Reading {uri} took {time.time() - tic} sec")
+        logger.debug("Reading %s took %d sec", uri, time.time() - tic)
 
         return ds
 
@@ -85,7 +85,10 @@ class GFS(ForecastModel):
             # so that we can infer whether we're opening the first grib.
             local_uri = fsspec.open_local(f"simplecache::{uri}", simplecache={"same_names": True})
             logger.debug(
-                f"threadpool: Downloading uri {uri} to {local_uri} took {time.time() - tic} sec"
+                "threadpool: Downloading uri %s to %s took %d sec",
+                uri,
+                local_uri,
+                time.time() - tic,
             )
             return local_uri
 

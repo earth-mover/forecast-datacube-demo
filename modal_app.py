@@ -44,7 +44,7 @@ MODAL_IMAGE = (
     .pip_install("eccodes", "ecmwflibs")
     .env(
         {
-            "SSL_CERT_FILE": "/opt/conda/lib/python3.11/site-packages/certifi/cacert.pem",  # noqa: E501
+            "SSL_CERT_FILE": "/opt/conda/lib/python3.11/site-packages/certifi/cacert.pem",
         }
     )
     .run_commands("python -m eccodes selfcheck")
@@ -61,6 +61,10 @@ MODAL_FUNCTION_KWARGS = dict(
 
 
 def merge_searches(searches: Sequence[str]) -> str:
+    """
+    Merges a string of `searches` together.
+    Assuming that a simple `|` will do sensible things.
+    """
     return "|".join(searches)
 
 
@@ -351,7 +355,7 @@ def driver(*, mode: WriteMode, ingest_jobs: dict[str, Ingest], since=None, till=
         list(update.map(ingests))
 
     else:
-        raise NotImplementedError()
+        raise NotImplementedError
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
