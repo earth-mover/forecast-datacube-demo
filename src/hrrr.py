@@ -120,8 +120,50 @@ class HRRR(ForecastModel):
         schema.latitude.encoding["chunks"] = schema.latitude.shape
         schema.longitude.encoding["chunks"] = schema.longitude.shape
 
+        schema.coords["spatial_ref"] = (
+            tuple(),
+            0,
+            {
+                "crs_wkt": "".join(
+                    [
+                        'PROJCRS["unknown",BASEGEOGCRS["unknown",DATUM["unknown",ELLIPSOID["unk',
+                        'nown",6371229,0,LENGTHUNIT["metre",1,ID["EPSG",9001]]]],PRIMEM["Greenw',
+                        'ich",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8901]]],CONVER',
+                        'SION["unknown",METHOD["Lambert Conic Conformal',
+                        '(2SP)",ID["EPSG",9802]],PARAMETER["Latitude of false origin",38.5,ANGL',
+                        'EUNIT["degree",0.0174532925199433],ID["EPSG",8821]],PARAMETER["Longitu',
+                        'de of false origin",262.5,ANGLEUNIT["degree",0.0174532925199433],ID["E',
+                        'PSG",8822]],PARAMETER["Latitude of 1st standard parallel",38.5,ANGLEUN',
+                        'IT["degree",0.0174532925199433],ID["EPSG",8823]],PARAMETER["Latitude',
+                        'of 2nd standard parallel",38.5,ANGLEUNIT["degree",0.0174532925199433],',
+                        'ID["EPSG",8824]],PARAMETER["Easting at false',
+                        'origin",0,LENGTHUNIT["metre",1],ID["EPSG",8826]],PARAMETER["Northing',
+                        'at false origin",0,LENGTHUNIT["metre",1],ID["EPSG",8827]]],CS[Cartesia',
+                        'n,2],AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1,ID["EPSG",9001]]],A',
+                        'XIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1,ID["EPSG",9001]]]]',
+                    ]
+                ),
+                "semi_major_axis": 6371229.0,
+                "semi_minor_axis": 6371229.0,
+                "inverse_flattening": 0.0,
+                "longitude_of_prime_meridian": 0.0,
+                "prime_meridian_name": "Greenwich",
+                # 'reference_ellipsoid_name': 'unknown',
+                # 'geographic_crs_name': 'unknown',
+                # 'horizontal_datum_name': 'unknown',
+                # 'projected_crs_name': 'unknown',
+                "grid_mapping_name": "lambert_conformal_conic",
+                "standard_parallel": (38.5, 38.5),
+                "latitude_of_projection_origin": 38.5,
+                "longitude_of_central_meridian": 262.5,
+                "false_easting": 0.0,
+                "false_northing": 0.0,
+                "long_name": "HRRR model grid projection",
+            },
+        )
+
         schema.attrs = {
-            "coordinates": "latitude longitude",
+            "coordinates": "latitude longitude spatial_ref",
             "description": "HRRR data ingested for forecasting demo",
         }
 
