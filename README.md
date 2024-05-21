@@ -1,9 +1,80 @@
-This is not a production tool. Please adapt and fix as needed.
+# Analysis-Ready Weather Forecast Data Cubes in Zarr
 
+> [!WARNING]
+> This repo is for demonstration purposes only. It does not aspire to be a maintained package. 
+> If you want to build on top of it, fork this repo and modify it to your needs.
+
+The code runs in one of two modes:
+1. `backfill` : Initialize a new Zarr store or Arraylake repo. Ingest data for the time period between `since` and (optionally) `till`.
+1. `update` : Designed to run as a scheduled Cron job, this mode brings a Zarr store up-to-date with the latest available data.
+
+Modal Cron Jobs cannot take arguments, so any configuration must be shipped up when running `modal deploy`. To configure the data pipeline
+set up a TOML file in `src/configs/`. The location is arbitrary, but it's nice to keep it all in one place.
+
+## Execution
+``` sh
+# Drive from the command line.
+modal run modal_hrrr.py --mode "backfill" --since "2024-05-15"  --toml-file src/configs/hrrr-demo.toml
+
+# Directly specify parameters `since`, `till`, `toml_file_path` in hrrr_backfill.
+modal run modal_hrrr.py::hrrr_backfill
+
+# Set up a repeating cron job to update the store.
+modal deploy modal_hrrr.py::hrrr_update_solar
+```
+
+## Configuration
+
+Details of the pipeline are configured using a TOML file.
+
+```
+# Format
+# ------
+[arbitrary_job_name]
+## Three Herbie Parameters
+model = string
+product = string
+search = string
+## Two Zarr store Parameters
+store = string  e.g. s3://my-bucket/store.zarr
+zarr_group = string e.g. "sfc/fcst"
+## Schema
+chunks = {string: int}, integer chunk size for dimension
+renames = {str: str}, mapping from variable name in inventory to actual name when read with cfgrib
+```
+
+Here's a concrete example:
+```toml
+[job1]
+model = "hrrr"
+product = "sfc"
+searches = [
+  "(?:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere",
+]
+store = "arraylake://earthmover-demos/hrrr"
+zarr_group =  "solar/"
+chunks = {x = 360, y = 120, time = 1, step = 19}
+renames = {TMP="t2m", RH="r2", TCDC="tcc"}
+```
+
+- Set `model` and `product` as necessary to have `herbie` find the right variables.
+- Set the output location using `store` and `zarr_group` within the store. For example, `store` can be `s3://my-bucket/forecast-datacube.zarr`.
+- `chunks` specify chunking for the Zarr arrays.
+- To set up the `searches` we recommend iterating interactively with `FastHerbie.inventory(search=searches)` and making sure you see all data that's needed.
+- The `renames` field is harder. It is necessary because `searches` (and `herbie`) will only know variable names as written in the `.idx` sidecar files.
+  The variable names are *not* necessarily preserved when reading those GRIB files with `cfgrib`.
+  Annoyingly, we do not know *a priori* what names `cfgrib` will choose to assign. 
+  Again the best approach is to iterate in a notebook.
+  Alternatively, simply run the pipeline with `renames={}`, and an error will raised suggesting what to set.
+
+For more examples see `src/configs/`.
 
 ## Organization
 
-
+- `modal_app.py` : Core functions annotated to run with Modal.
+- Model-specific functions. These are simple specializations for a couple of models: HRRR and GFS.
+  - `modal_hrrr.py`, `modal_gfs.py`
+  
 ## Sharp edges
 
 1. Make sure that the `search` string returns what you want. It is a good idea to use ``FastHerbie.inventory(search_string)`` to double check.
