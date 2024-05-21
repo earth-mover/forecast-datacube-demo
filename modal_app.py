@@ -1,20 +1,19 @@
 import itertools
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Any, Sequence
+from datetime import datetime
+from typing import Any
 
 import arraylake as al
 import modal
 import numpy as np
 import pandas as pd
-import tomllib
 import xarray as xr
 import zarr
-from modal import App, Image
 
 from src import lib, models
-from src.lib import Ingest, WriteMode, get_logger
+from src.lib import Ingest, WriteMode, get_logger, merge_searches
+from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -22,56 +21,14 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
-app = App("forecast-ingest-lib")
-
-
-MODAL_IMAGE = (
-    Image.debian_slim(python_version="3.11")
-    .apt_install("libglib2.0-dev", "curl")
-    .pip_install(
-        "arraylake",
-        "certifi",
-        "cfgrib",
-        "dask",
-        "fsspec",
-        "herbie-data",
-        "s3fs",
-        "xarray",
-        "pydantic-core==2.18.2",
-        "pydantic==2.7.1",
-        "fastapi>=0.108",
-    )
-    .pip_install("eccodes", "ecmwflibs")
-    .env(
-        {
-            "SSL_CERT_FILE": "/opt/conda/lib/python3.11/site-packages/certifi/cacert.pem",
-        }
-    )
-    .run_commands("python -m eccodes selfcheck")
-)
-MODAL_FUNCTION_KWARGS = dict(
-    image=MODAL_IMAGE,
-    secrets=[
-        modal.Secret.from_name("earth-mover-aws-secret"),
-        modal.Secret.from_name("deepak-arraylake-demos-token"),
-    ],
-    mounts=[modal.Mount.from_local_python_packages("src")],
-    #    concurrency_limit=1,
-)
-
-
-def merge_searches(searches: Sequence[str]) -> str:
-    """
-    Merges a string of `searches` together.
-    Assuming that a simple `|` will do sensible things.
-    """
-    return "|".join(searches)
+applib = modal.App("earthmover-forecast-ingest-lib")
 
 
 #############
 
 
 def initialize(ingest) -> None:
+    """This function initializes a Zarr group with the schema for a backfill."""
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
@@ -98,13 +55,14 @@ def initialize(ingest) -> None:
         store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def backfill(
     ingest: Ingest,
     *,
     since: TimestampLike,
     till: TimestampLike | None = None,
 ) -> None:
+    """This function runs after `initialize` and sets up the `write_times` function."""
     logger.info("backfill: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     if till is not None:
@@ -113,8 +71,9 @@ def backfill(
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
 def update(ingest: Ingest) -> None:
+    """This function sets up the `write_times` function for a new update to the dataset."""
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
@@ -207,6 +166,7 @@ def write_times(
 
     if initialize:
         # Initialize with the right attributes. We do not update these after initialization
+        # This is a little ugly, but it minimizes code duplication.
         logger.info("Getting attributes for data variables.")
         dset = model.as_xarray(merge_searches(ingest.searches)).expand_dims(model.expand_dims)
         if sorted(schema.data_vars) != sorted(dset.data_vars):
@@ -232,6 +192,8 @@ def write_times(
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError
 
+    # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
+    # to be greater than 1.
     time_and_steps = itertools.chain(
         *(
             itertools.product(
@@ -251,7 +213,9 @@ def write_times(
         for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
     )
 
-    # 1. figure out total number of timestamps in store.
+    # figure out total number of timestamps in store.
+    # This is an optimization to figure out the `region` in `write_herbie`
+    # minimizing number of roundtrips to the object store.
     ntimes = zarr_group[model.runtime_dim].size
     list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
@@ -267,7 +231,7 @@ def write_times(
         )
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=600, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=600, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
 
@@ -287,7 +251,7 @@ def write_herbie(job, *, schema, ntimes=None):
         # (1) length of the time dimension is passed in to each worker.
         # (2) The timestamps we are writing are passed in `schema`
         # (3) we know the `step` values.
-        # So we can infer `region` without making multiple trips to the store.
+        # So we can infer `region` without making multiple trips to the Zarr store.
         index = pd.to_timedelta(schema.indexes["step"], unit="hours")
         step = pd.to_timedelta(ds.step.data, unit="ns")
         istep = index.get_indexer(step)
@@ -325,23 +289,9 @@ def write_herbie(job, *, schema, ntimes=None):
     return ds.step
 
 
-def parse_toml_config(file: str) -> dict[str, lib.Ingest]:
-    with open(file, mode="rb") as f:
-        parsed = tomllib.load(f)
+def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> None:
+    ingest_jobs = lib.parse_toml_config(toml_file_path)
 
-    ingest_jobs = {}
-    for key, values in parsed.items():
-        model = models.get_model(values["model"])
-        if unknown_dims := (set(values["chunks"]) - set(model.dim_order)):
-            raise ValueError(
-                f"Unrecognized dimension names in chunks: {unknown_dims}. "
-                f"Expected {model.dim_order!r}."
-            )
-        ingest_jobs[key] = Ingest(name=key, **values)
-    return ingest_jobs
-
-
-def driver(*, mode: WriteMode, ingest_jobs: dict[str, Ingest], since=None, till=None) -> None:
     # Set this here for Arraylake so all tasks start with the same state
     ingests = ingest_jobs.values()
     for i in ingests:
@@ -356,66 +306,3 @@ def driver(*, mode: WriteMode, ingest_jobs: dict[str, Ingest], since=None, till=
 
     else:
         raise NotImplementedError
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
-def hrrr_backfill():
-    file = "src/configs/hrrr.toml"
-    mode = WriteMode.BACKFILL
-    since = datetime.utcnow() - timedelta(days=3)
-    till = datetime.utcnow() - timedelta(days=1, hours=12)
-
-    ingest_jobs = parse_toml_config(file)
-
-    driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
-def hrrr_update_solar():
-    file = "src/configs/hrrr.toml"
-    mode = WriteMode.UPDATE
-
-    ingest_jobs = parse_toml_config(file)
-    driver(mode=mode, ingest_jobs=ingest_jobs)
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
-def gfs_backfill():
-    file = "src/configs/gfs.toml"
-    mode = WriteMode.BACKFILL
-    since = datetime.utcnow() - timedelta(days=3)
-    till = datetime.utcnow() - timedelta(days=1, hours=12)
-
-    ingest_jobs = parse_toml_config(file)
-
-    driver(mode=mode, ingest_jobs=ingest_jobs, since=since, till=till)
-
-
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 0,6,12,18 * * *"))
-def gfs_update_solar():
-    file = "src/configs/gfs.toml"
-    mode = WriteMode.UPDATE
-
-    ingest_jobs = parse_toml_config(file)
-    driver(mode=mode, ingest_jobs=ingest_jobs)
-
-
-@app.local_entrypoint()
-def main():
-    gfs_backfill.remote()
-    # Command-line kwargs
-    # modal_mode = "run"
-
-    # # In config TOML file
-    # name = "hrrr_update"
-    # cron = "30 * * * *"
-
-    # modal_kwargs = dict(name=name, **MODAL_FUNCTION_KWARGS, timeout=3600)
-    # # if modal_mode == "deploy":
-    # #     if cron:
-    # #         modal_kwargs["schedule"] = modal.Cron("30 * * * *")
-    # #     driver_function = app.function(**modal_kwargs)(interface)
-    # #     modal.runner.deploy_app(app, name=name)
-    # # else:
-    # driver_function = app.function(**modal_kwargs)(interface)
-    # driver_function.remote()

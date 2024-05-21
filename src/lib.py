@@ -12,6 +12,7 @@ from typing import Any, Hashable, Iterable, Literal, Sequence
 import fsspec
 import numpy as np
 import pandas as pd
+import tomllib
 import xarray as xr
 import zarr
 
@@ -200,6 +201,7 @@ class ForecastModel(ABC):
         return latest_available
 
     def open_herbie(self, job: Job) -> xr.Dataset:
+        """Opens the GRIB files specified in job.ingest and returns a Dataset."""
         from herbie import FastHerbie
 
         FH = FastHerbie(
@@ -341,3 +343,29 @@ def create_time_encoding(freq: timedelta) -> dict:
     encoding["chunks"] = (120,)
 
     return encoding
+
+
+def parse_toml_config(file: str) -> dict[str, Ingest]:
+    from . import models
+
+    with open(file, mode="rb") as f:
+        parsed = tomllib.load(f)
+
+    ingest_jobs = {}
+    for key, values in parsed.items():
+        model = models.get_model(values["model"])
+        if unknown_dims := (set(values["chunks"]) - set(model.dim_order)):
+            raise ValueError(
+                f"Unrecognized dimension names in chunks: {unknown_dims}. "
+                f"Expected {model.dim_order!r}."
+            )
+        ingest_jobs[key] = Ingest(name=key, **values)
+    return ingest_jobs
+
+
+def merge_searches(searches: Sequence[str]) -> str:
+    """
+    Merges a string of `searches` together.
+    Assuming that a simple `|` will do sensible things.
+    """
+    return "|".join(searches)

@@ -1,5 +1,9 @@
 This is not a production tool. Please adapt and fix as needed.
 
+
+## Organization
+
+
 ## Sharp edges
 
 1. Make sure that the `search` string returns what you want. It is a good idea to use ``FastHerbie.inventory(search_string)`` to double check.

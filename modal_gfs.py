@@ -1,0 +1,33 @@
+#  Everything till the `=======` is required to work, though it can be customized.
+
+from datetime import datetime, timedelta
+
+import modal
+
+from modal_app import applib, driver
+from src.lib import WriteMode
+from src.lib_modal import MODAL_FUNCTION_KWARGS
+
+app = modal.App("gfs-forecast-ingest")
+app.include(applib)  # necessary
+
+# =======
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 0,6,12,18 * * *"))
+def gfs_update_solar():
+    driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/gfs.toml")
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+def gfs_backfill():
+    file = "src/configs/gfs.toml"
+    since = datetime.utcnow() - timedelta(days=3)
+    till = datetime.utcnow() - timedelta(days=1, hours=12)
+
+    driver(mode=WriteMode.BACKFILL, toml_file_path=file, since=since, till=till)
+
+
+@app.local_entrypoint()
+def main():
+    gfs_update_solar.remote()
