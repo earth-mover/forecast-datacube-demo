@@ -6,7 +6,9 @@ dependencies:
     - cfgrib
     - dask
     - fsspec
-    - herbie
+    - herbie-data
     - s3fs
     - pydantic >2
     - xarray
+    - pip:
+      - modal
