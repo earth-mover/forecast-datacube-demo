@@ -83,7 +83,6 @@ For more examples see `src/configs/`.
   1. `lib.py`: Core data structures and utilities. The most important data structure is `ForecastModel`. This is the base class that allows specialization to a specific model.
   1. `gfs.py` : Contains `GFS`, a subclass of `ForecastModel`, specialized for GFS output.
   1. `hrrr.py` : Contains `HRRR`, a subclass of `ForecastModel`, specialized for HRRR output.
-  1. `index.py` : A *prototype* [Xarray custom index](https://docs.xarray.dev/en/latest/internals/how-to-create-custom-index.html) that allows indexing the data cube like Forecast Model Run Collection (FMRC) aggregations. This is a bit incomplete at the moment.
 
 
 ## Sharp edges
