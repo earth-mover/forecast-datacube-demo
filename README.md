@@ -1,7 +1,11 @@
 # Analysis-Ready Weather Forecast Data Cubes in Zarr
 
+This is a model for how to build a data pipeline that ingests and transforms weather forecast data distributed as GRIB files to an analysis-ready cloud-optimized Zarr data cube using a serverless pipeline.
+
+Currently two models are supported : GFS and HRRR, extensions to other models should be easy™.
+
 > [!WARNING]
-> This repo is for demonstration purposes only. It does not aspire to be a maintained package. 
+> This repo is for demonstration purposes only. It does not aspire to be a maintained package.
 > If you want to build on top of it, fork this repo and modify it to your needs.
 
 The code runs in one of two modes:
@@ -63,7 +67,7 @@ renames = {TMP="t2m", RH="r2", TCDC="tcc"}
 - To set up the `searches` we recommend iterating interactively with `FastHerbie.inventory(search=searches)` and making sure you see all data that's needed.
 - The `renames` field is harder. It is necessary because `searches` (and `herbie`) will only know variable names as written in the `.idx` sidecar files.
   The variable names are *not* necessarily preserved when reading those GRIB files with `cfgrib`.
-  Annoyingly, we do not know *a priori* what names `cfgrib` will choose to assign. 
+  Annoyingly, we do not know *a priori* what names `cfgrib` will choose to assign.
   Again the best approach is to iterate in a notebook.
   Alternatively, simply run the pipeline with `renames={}`, and an error will raised suggesting what to set.
 
@@ -72,9 +76,16 @@ For more examples see `src/configs/`.
 ## Organization
 
 - `modal_app.py` : Core functions annotated to run with Modal.
-- Model-specific functions. These are simple specializations for a couple of models: HRRR and GFS.
+- Model-specific functions.
   - `modal_hrrr.py`, `modal_gfs.py`
-  
+  - These are simple specializations for a couple of models: HRRR and GFS. They have been separated out for convenience.
+- `src/`:
+  1. `lib.py`: Core data structures and utilities. The most important data structure is `ForecastModel`. This is the base class that allows specialization to a specific model.
+  1. `gfs.py` : Contains `GFS`, a subclass of `ForecastModel`, specialized for GFS output.
+  1. `hrrr.py` : Contains `HRRR`, a subclass of `ForecastModel`, specialized for HRRR output.
+  1. `index.py` : A *prototype* [Xarray custom index](https://docs.xarray.dev/en/latest/internals/how-to-create-custom-index.html) that allows indexing the data cube like Forecast Model Run Collection (FMRC) aggregations. This is a bit incomplete at the moment.
+
+
 ## Sharp edges
 
 1. Make sure that the `search` string returns what you want. It is a good idea to use ``FastHerbie.inventory(search_string)`` to double check.
@@ -84,3 +95,7 @@ For more examples see `src/configs/`.
 1. Modal functions with schedules cannot take arguments. So any configuration `toml` files must be uploaded during `modal deploy` by bundling them in `src/configs/`.
    - See https://herbie.readthedocs.io/en/stable/user_guide/tutorial/search.html for more
 
+## Acknowledgments
+
+- [Herbie](https://herbie.readthedocs.io/en/stable/)
+- [cfgrib](https://github.com/ecmwf/cfgrib)
