@@ -75,6 +75,7 @@ For more examples see `src/configs/`.
 
 ## Organization
 
+- `hrrr-cube.ipynb` : Notebook demonstrating analysis with the HRRR data cube.
 - `modal_app.py` : Core functions annotated to run with Modal.
 - Model-specific functions.
   - `modal_hrrr.py`, `modal_gfs.py`
