@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import ForecastModel, open_single_grib
+from .lib import ForecastModel, Ingest, merge_searches, open_single_grib
 
 logger = lib.get_logger()
 
@@ -114,17 +114,14 @@ class GFS(ForecastModel):
             coords="minimal",
         )
 
-    def create_schema(
-        self,
-        chunksizes: dict[str, int],
-        *,
-        renames: dict[str, str] | None,
-        search: str | None = None,
-        times=None,
-    ) -> xr.Dataset:
+    def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
         """
+        chunksizes = ingest.chunks
+        renames = ingest.renames
+        search = merge_searches(ingest.searches)
+
         if times is None:
             times = [datetime.utcnow()]
         schema = xr.Dataset()

@@ -40,15 +40,7 @@ def initialize(ingest) -> None:
         )
 
     # We write the schema for time-invariant variables first to prevent conflicts
-    schema = (
-        model.create_schema(
-            chunksizes=ingest.chunks,
-            search=merge_searches(ingest.searches),
-            renames=ingest.renames,
-        )
-        .coords.to_dataset()
-        .drop_dims([model.runtime_dim])
-    )
+    schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
     schema.to_zarr(store, group=group, mode="w")
 
     if isinstance(store, al.repo.ArraylakeStore):
@@ -155,12 +147,7 @@ def write_times(
     available_times = model.get_available_times(since, till)
     logger.info("Available times are {} for ingest {}".format(available_times, ingest))
 
-    schema = model.create_schema(
-        times=available_times,
-        search=merge_searches(ingest.searches),
-        chunksizes=ingest.chunks,
-        renames=ingest.renames,
-    )
+    schema = model.create_schema(times=available_times, ingest=ingest)
     # Drop time-invariant variables to prevent conflicts
     to_drop = [name for name, var in schema.variables.items() if model.runtime_dim not in var.dims]
 

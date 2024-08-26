@@ -7,9 +7,20 @@ import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import ForecastModel
+from .lib import ForecastModel, Ingest, merge_searches
 
 logger = lib.get_logger()
+
+
+VERTICAL_COORD_ATTRS = {
+    "isobaricInhPa": {
+        "long_name": "pressure",
+        "units": "hPa",
+        "positive": "down",
+        "stored_direction": "decreasing",
+        "standard_name": "air_pressure",
+    },
+}
 
 
 class HRRR(ForecastModel):
@@ -18,7 +29,7 @@ class HRRR(ForecastModel):
     step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
-    dim_order = ("x", "y", "time", "step")
+    dim_order = ("isobaricInhPa", "x", "y", "time", "step")
     update_freq = timedelta(hours=1)
 
     def get_lat_lon(self):
@@ -69,17 +80,14 @@ class HRRR(ForecastModel):
         else:
             return range(19)
 
-    def create_schema(
-        self,
-        chunksizes: dict[str, int],
-        *,
-        renames: dict[str, str] | None = None,
-        search: str | None = None,
-        times=None,
-    ) -> xr.Dataset:
+    def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
         """
         Create schema Xarray Dataset for a list of model run times.
         """
+        chunksizes = ingest.chunks
+        renames = ingest.renames
+        search = merge_searches(ingest.searches)
+
         if times is None:
             times = [datetime.utcnow()]
 
@@ -100,10 +108,23 @@ class HRRR(ForecastModel):
                 "step",
                 pd.to_timedelta(self.get_steps_for_search(search), unit="hour"),
             )
-
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
         schema["step"].attrs["standard_name"] = "forecast_period"
+
+        if search is not None:
+            coord, levels = self.get_levels_for_search(search, product=ingest.product)
+            if levels:
+                schema[coord] = (
+                    coord,
+                    np.array(levels, dtype=np.int16),
+                    VERTICAL_COORD_ATTRS[coord],
+                )
+                schema[coord].encoding["chunks"] = len(levels)
+                assert coord == "isobaricInhPa"
+                schema["step"].encoding.update(
+                    lib.optimize_coord_encoding(schema[coord].data, dx=25, is_regular=True)
+                )
 
         # TODO: optimize encoding for latitude, longitude
         lat, lon = self.get_lat_lon()

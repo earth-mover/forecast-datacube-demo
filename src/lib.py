@@ -78,6 +78,8 @@ class Job:
     time steps ``steps``.
     """
 
+    # Important: `time` and `step` (or `fxx`) can be passed to Herbie directly
+    # to filter results.
     runtime: pd.Timestamp
     steps: list[int]
     ingest: Ingest
@@ -93,14 +95,7 @@ class ForecastModel(ABC):
     update_freq: timedelta
 
     @abstractmethod
-    def create_schema(
-        self,
-        chunksizes: dict[str, int],
-        *,
-        renames: dict[str, str] | None,
-        search: str | None = None,
-        times=None,
-    ) -> xr.Dataset:
+    def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
         """Create schema with chunking for on-disk storage."""
         pass
 
@@ -149,6 +144,23 @@ class ForecastModel(ABC):
         H = FastHerbie([time], model=self.name, fxx=self.get_steps(time))
         unique_steps = H.inventory(search).forecast_time.unique()
         return [0 if s == "anl" else int(s.removesuffix(" hour fcst")) for s in unique_steps]
+
+    def get_levels_for_search(self, search: str, *, product: str) -> tuple[str, list[int]]:
+        """
+        These are `fxx` or `step` values available for this particular search.
+        We have to execute the `search` in case the search string constrains the step values.
+        """
+        from herbie import FastHerbie
+
+        time = pd.Timestamp("2023-01-01")
+        H = FastHerbie([time], model=self.name, product=product, fxx=self.get_steps(time))
+        unique_levels = H.inventory(search).level.unique()
+        # TODO: really need a better way to handle vertical levels
+        if len(unique_levels) > 1:
+            assert all(" mb" in level for level in unique_levels)
+            return "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
+        else:
+            return unique_levels[0], []
 
     def get_available_times(
         self, since: TimestampLike, till: TimestampLike | None = None
