@@ -32,7 +32,7 @@ MODAL_IMAGE = (
 MODAL_FUNCTION_KWARGS = dict(
     image=MODAL_IMAGE,
     secrets=[
-        modal.Secret.from_name("earth-mover-aws-secret"),
+        modal.Secret.from_name("ryan-aws-secret"),
         modal.Secret.from_name("deepak-arraylake-demos-token"),
     ],
     mounts=[modal.Mount.from_local_python_packages("src")],
