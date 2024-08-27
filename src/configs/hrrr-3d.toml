@@ -2,7 +2,7 @@
 model = "hrrr"
 product = "prs"
 searches = [
-  "(TMP|HGT|DPT|UGRD|VGRD):[0-9]* mb:anl",
+  "TMP|HGT|DPT|UGRD|VGRD:[0-9]* mb:anl",
 ]
 store = "arraylake://earthmover-demos/hrrr"
 zarr_group =  "3d/"

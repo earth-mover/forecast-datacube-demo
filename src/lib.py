@@ -53,7 +53,7 @@ class Ingest:
     zarr_group: str
     searches: Sequence[str]
     chunks: dict[str, int]
-    renames: list[str] | None = None
+    renames: dict[str, str] | None = None
     zarr_store: Any = None
 
     def __iter__(self):

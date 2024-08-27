@@ -102,7 +102,7 @@ def update(ingest: Ingest) -> None:
         )
         return
 
-    since = (
+    since: pd.Timestamp = pd.Timestamp(
         datetime.combine(instore.time[-1].dt.date.item(), instore.time[-1].dt.time.item())
         + model.update_freq
     )
@@ -278,9 +278,6 @@ def write_herbie(job, *, schema, ntimes=None):
         region.update({dim: slice(None) for dim in model.dim_order if dim not in region})
 
         logger.info("Writing job {} to region {}".format(job, region))
-
-        for arr in ds.data_vars:
-            arr.attrs["grid_mapping"] = "spatial_ref"
 
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks

@@ -1,5 +1,7 @@
 """Utility functions for modal."""
 
+from typing import Sequence, TypedDict
+
 import modal
 from modal import Image
 
@@ -29,7 +31,13 @@ MODAL_IMAGE = (
 )
 
 
-MODAL_FUNCTION_KWARGS = dict(
+class ModalKwargs(TypedDict):
+    image: modal.Image
+    secrets: Sequence[modal.Secret]
+    mounts: Sequence[modal.Mount]
+
+
+MODAL_FUNCTION_KWARGS: ModalKwargs = dict(
     image=MODAL_IMAGE,
     secrets=[
         modal.Secret.from_name("ryan-aws-secret"),
