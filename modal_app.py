@@ -25,6 +25,17 @@ applib = modal.App("earthmover-forecast-ingest-lib")
 
 
 #############
+def rewrite_store(store):
+    import os
+
+    import arraylake as al
+    from arraylake import Client
+
+    if isinstance(store, al.repo.ArraylakeStore):
+        client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
+        return client.get_repo(store._repo._arepo.repo_name).store
+    else:
+        return store
 
 
 def initialize(ingest) -> None:
@@ -59,6 +70,7 @@ def backfill(
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
+    ingest.zarr_store = rewrite_store(ingest.zarr_store)
     initialize(ingest)
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
@@ -69,6 +81,7 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
+    ingest.zarr_store = rewrite_store(ingest.zarr_store)
     store = ingest.zarr_store
     assert store is not None
 
