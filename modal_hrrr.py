@@ -43,6 +43,27 @@ def hrrr_update_solar():
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)
+def hrrr_backfill_3d():
+    """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill_3d`."""
+    import pandas as pd
+
+    file = "src/configs/hrrr-3d.toml"
+    mode = WriteMode.BACKFILL
+    since = pd.Timestamp("2023-01-01")
+    till = pd.Timestamp("2023-12-31 23:30")
+
+    driver(mode=mode, toml_file_path=file, since=since, till=till)
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("57 * * * *"))
+def hrrr_update_3d():
+    """
+    *Deploy* this :update" function with `modal deploy modal_hrrr.py --name hrrr_update_3d`.
+    """
+    driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-3d.toml")
+
+
+@app.function(**MODAL_FUNCTION_KWARGS)
 def hrrr_backfill_rechunk():
     file = "src/configs/hrrr-demo.toml"
     mode = WriteMode.BACKFILL

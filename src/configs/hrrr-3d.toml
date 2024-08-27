@@ -1,0 +1,10 @@
+[job1]
+model = "hrrr"
+product = "prs"
+searches = [
+  "(TMP|HGT|DPT|UGRD|VGRD):[0-9]* mb:anl",
+]
+store = "arraylake://earthmover-demos/hrrr"
+zarr_group =  "3d/"
+chunks = {x = 1799, y = 1059, time = 1, step = 1, isobaricInhPa= 5}
+renames = {HGT="gh", UGRD="u", VGRD="v", TMP="t"}
