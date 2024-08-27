@@ -266,6 +266,9 @@ def write_herbie(job, *, schema, ntimes=None):
 
         logger.info("Writing job {} to region {}".format(job, region))
 
+        for arr in ds.data_vars:
+            arr.attrs["grid_mapping"] = "spatial_ref"
+
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
         ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
