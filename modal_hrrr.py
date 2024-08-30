@@ -49,8 +49,8 @@ def hrrr_backfill_3d():
 
     file = "src/configs/hrrr-3d.toml"
     mode = WriteMode.BACKFILL
-    since = pd.Timestamp("2023-01-01")
-    till = pd.Timestamp("2023-12-31 23:30")
+    since = pd.Timestamp("2022-01-01")
+    till = pd.Timestamp("2022-12-31 23:30")
 
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
