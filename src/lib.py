@@ -114,7 +114,17 @@ class ForecastModel(ABC):
         from herbie import Herbie
 
         H = Herbie("2023-01-01", model=self.name, fxx=0)
-        dset = H.xarray(search)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "This pattern is interpreted as a regular expression, and has match groups. "
+                    "To actually get the groups, use str.extract."
+                ),
+                category=UserWarning,
+            )
+
+            dset = H.xarray(search)
         if isinstance(dset, list):
             dset = xr.merge(dset)
         return dset
