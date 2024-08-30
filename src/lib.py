@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum, auto
 from typing import Any, Hashable, Iterable, Literal, Sequence
 
+import cfgrib
 import fsspec
 import numpy as np
 import pandas as pd
@@ -273,14 +274,27 @@ class ForecastModel(ABC):
             paths = FH.download(search=search)
             logger.debug("Downloaded paths {}".format(paths))
 
-        ds = (
-            xr.open_mfdataset(sorted(paths), combine="nested", concat_dim="step", engine="cfgrib")
-            .expand_dims("time")
-            .sortby("step")
+        # TODO: really need a better way to handle vertical levels
+        unique_levels = inv.level.unique()
+        if len(unique_levels) > 1:
+            assert all(" mb" in level for level in unique_levels), (search, unique_levels)
+            level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
+        else:
+            level_dim, levels = unique_levels[0], []
+
+        ds = xr.combine_nested(
+            [xr.merge(cfgrib.open_datasets(path)) for path in sorted(paths)], concat_dim="step"
         )
+        # ds = xr.open_mfdataset(
+        #   sorted(paths), combine="nested", concat_dim="step", engine="cfgrib"
+        #   )
+        ds = ds.expand_dims("time").sortby("step")
+        if level_dim in ds.dims:
+            ds = ds.reindex({level_dim: levels})
 
         counts = ds.count("step").compute()
-        if not (counts == len(job.steps)).to_array().all().item():
+        if not levels and not (counts == len(job.steps)).to_array().all().item():
+            # 3D datasets have lots of corrupt data!
             raise ValueError(f"This dataset has NaNs. Aborting \n{counts}")
 
         return ds.chunk(step=job.ingest.chunks["step"]).transpose(*self.dim_order)
