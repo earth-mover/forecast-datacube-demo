@@ -3,6 +3,7 @@ import itertools
 import logging
 import random
 import string
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -125,12 +126,22 @@ class ForecastModel(ABC):
         from herbie import Herbie
 
         H = Herbie("2023-01-01", model=self.name, fxx=0)
-        data_vars = [
-            renames.get(name, name.lower()) if renames is not None else name
-            for name in H.inventory(search).variable.unique()
-            # funny unknown HRRR variable
-            if not name.startswith("var discipline=")
-        ]
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "This pattern is interpreted as a regular expression, and has match groups. "
+                    " To actually get the groups, use str.extract."
+                ),
+                category=UserWarning,
+            )
+
+            data_vars = [
+                renames.get(name, name.lower()) if renames is not None else name
+                for name in H.inventory(search).variable.unique()
+                # funny unknown HRRR variable
+                if not name.startswith("var discipline=")
+            ]
         return data_vars
 
     def get_steps_for_search(self, search: str) -> list[int]:
@@ -142,7 +153,17 @@ class ForecastModel(ABC):
 
         time = pd.Timestamp("2023-01-01")
         H = FastHerbie([time], model=self.name, fxx=self.get_steps(time))
-        unique_steps = H.inventory(search).forecast_time.unique()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "This pattern is interpreted as a regular expression, and has match groups. "
+                    " To actually get the groups, use str.extract."
+                ),
+                category=UserWarning,
+            )
+
+            unique_steps = H.inventory(search).forecast_time.unique()
         return [0 if s == "anl" else int(s.removesuffix(" hour fcst")) for s in unique_steps]
 
     def get_levels_for_search(self, search: str, *, product: str) -> tuple[str, list[int]]:
@@ -154,10 +175,20 @@ class ForecastModel(ABC):
 
         time = pd.Timestamp("2023-01-01")
         H = FastHerbie([time], model=self.name, product=product, fxx=self.get_steps(time))
-        unique_levels = H.inventory(search).level.unique()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "This pattern is interpreted as a regular expression, and has match groups. "
+                    " To actually get the groups, use str.extract."
+                ),
+                category=UserWarning,
+            )
+
+            unique_levels = H.inventory(search).level.unique()
         # TODO: really need a better way to handle vertical levels
         if len(unique_levels) > 1:
-            assert all(" mb" in level for level in unique_levels)
+            assert all(" mb" in level for level in unique_levels), (search, unique_levels)
             return "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
         else:
             return unique_levels[0], []
@@ -226,12 +257,21 @@ class ForecastModel(ABC):
         (search,) = job.ingest.searches
         logger.debug("Searching %s", search)
 
-        inv = FH.inventory(search=search)
-        if inv.forecast_time.nunique() != len(job.steps):
-            raise ValueError(f"Not all files are available for job: {job!r}")
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "This pattern is interpreted as a regular expression, and has match groups. "
+                    " To actually get the groups, use str.extract."
+                ),
+                category=UserWarning,
+            )
+            inv = FH.inventory(search=search)
+            if inv.forecast_time.nunique() != len(job.steps):
+                raise ValueError(f"Not all files are available for job: {job!r}")
 
-        paths = FH.download(search=search)
-        logger.debug("Downloaded paths {}".format(paths))
+            paths = FH.download(search=search)
+            logger.debug("Downloaded paths {}".format(paths))
 
         ds = (
             xr.open_mfdataset(sorted(paths), combine="nested", concat_dim="step", engine="cfgrib")

@@ -1,6 +1,7 @@
 import itertools
 import logging
 import time
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -71,6 +72,12 @@ def backfill(
     if till is not None:
         till = till + model.update_freq
     ingest.zarr_store = rewrite_store(ingest.zarr_store)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=UserWarning,
+            message="This pattern is interpreted as a regular expression*",
+        )
     initialize(ingest)
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
