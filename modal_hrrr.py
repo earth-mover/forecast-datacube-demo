@@ -42,7 +42,7 @@ def hrrr_update_solar():
     driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr.toml")
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
 def hrrr_backfill_3d():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill_3d`."""
     import pandas as pd
