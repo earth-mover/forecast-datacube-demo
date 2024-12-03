@@ -96,7 +96,7 @@ def update(ingest: Ingest) -> None:
         # fastpath
         instore = store._repo.to_xarray(group)
     else:
-        instore = xr.open_zarr(store, group=group)
+        instore = xr.open_zarr(store, group=group, mode="r")
 
     latest_available_date = model.latest_available(ingest)
     latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
