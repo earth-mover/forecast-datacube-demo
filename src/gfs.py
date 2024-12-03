@@ -1,6 +1,6 @@
 import time
 from collections.abc import Hashable, Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import dask.array
 import fsspec
@@ -123,7 +123,7 @@ class GFS(ForecastModel):
         search = merge_searches(ingest.searches)
 
         if times is None:
-            times = [datetime.utcnow()]
+            times = [lib.utcnow()]
         schema = xr.Dataset()
         schema["latitude"] = (
             "latitude",
@@ -139,7 +139,7 @@ class GFS(ForecastModel):
         if search is not None:
             schema["step"] = (
                 "step",
-                pd.to_timedelta(self.get_steps(pd.Timestamp(datetime.utcnow())), unit="hours"),
+                pd.to_timedelta(self.get_steps(pd.Timestamp(lib.utcnow())), unit="hours"),
             )
             schema["step"].encoding.update(
                 lib.optimize_coord_encoding(

@@ -7,7 +7,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum, auto
 from typing import Any, Literal
 
@@ -20,6 +20,11 @@ import xarray as xr
 import zarr
 
 TimestampLike = Any
+
+
+def utcnow():
+    # herbie requires timezone-naive timestamps
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def get_logger():
@@ -212,7 +217,7 @@ class ForecastModel(ABC):
         These are expected timestamps that are available for this particular model.
         """
         if till is None:
-            till = datetime.utcnow()
+            till = utcnow()
         since = pd.Timestamp(since).floor(self.update_freq)  # type: ignore[arg-type]
         till = pd.Timestamp(till).floor(self.update_freq)  # type: ignore[arg-type]
         available_times = pd.date_range(since, till, inclusive="left", freq=self.update_freq)

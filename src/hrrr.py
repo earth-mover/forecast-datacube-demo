@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import dask.array
 import numpy as np
@@ -89,7 +89,7 @@ class HRRR(ForecastModel):
         search = merge_searches(ingest.searches)
 
         if times is None:
-            times = [datetime.utcnow()]
+            times = [lib.utcnow()]
 
         schema = xr.Dataset()
 

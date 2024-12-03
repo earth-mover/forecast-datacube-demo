@@ -1,11 +1,11 @@
 #  Everything till the `=======` is required to work, though it can be customized.
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import modal
 
 from modal_app import applib, driver
-from src.lib import WriteMode
+from src.lib import WriteMode, utcnow
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 app = modal.App("hrrr-forecast-ingest")
@@ -28,8 +28,8 @@ def hrrr_backfill():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
     file = "src/configs/hrrr.toml"
     mode = WriteMode.BACKFILL
-    since = datetime.utcnow() - timedelta(days=3)
-    till = datetime.utcnow() - timedelta(days=1, hours=12)
+    since = utcnow() - timedelta(days=3)
+    till = utcnow() - timedelta(days=1, hours=12)
 
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
@@ -67,8 +67,8 @@ def hrrr_backfill_3d():
 # def hrrr_backfill_rechunk():
 #     file = "src/configs/hrrr-demo.toml"
 #     mode = WriteMode.BACKFILL
-#     since = datetime.utcnow() - timedelta(days=3)
-#     till = datetime.utcnow() - timedelta(days=1, hours=12)
+#     since = utcnow() - timedelta(days=3)
+#     till = utcnow() - timedelta(days=1, hours=12)
 
 #     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
