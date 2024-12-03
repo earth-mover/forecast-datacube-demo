@@ -55,12 +55,12 @@ def hrrr_backfill_3d():
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("57 * * * *"))
-def hrrr_update_3d():
-    """
-    *Deploy* this :update" function with `modal deploy modal_hrrr.py --name hrrr_update_3d`.
-    """
-    driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-3d.toml")
+# @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
+# def hrrr_update_3d():
+#     """
+#     *Deploy* this :update" function with `modal deploy modal_hrrr.py --name hrrr_update_3d`.
+#     """
+#     driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-3d.toml")
 
 
 # @app.function(**MODAL_FUNCTION_KWARGS)
