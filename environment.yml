@@ -2,7 +2,7 @@ channels:
     - conda-forge
 
 dependencies:
-    - arraylake
+    - arraylake >=0.13.1
     - cfgrib
     - dask
     - fsspec
@@ -12,3 +12,4 @@ dependencies:
     - xarray
     - pip:
       - modal
+      - icechunk
