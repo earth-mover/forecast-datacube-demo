@@ -358,9 +358,18 @@ def get_zarr_store(name):
     import arraylake as al
 
     ALPREFIX = "arraylake://"
+    ICEPREFIX = "icechunk://"
     if name.startswith(ALPREFIX):
+        logger.info(f"Opening Arraylake store: {name!r}")
         client = al.Client()
         return client.get_or_create_repo(name.removeprefix(ALPREFIX)).store
+    elif name.startswith(ICEPREFIX):
+        logger.info(f"Opening Icechunk store: {name!r}")
+        client = al.Client()
+        store = client.get_or_create_repo(name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.V2)
+        # TODO: add read_only to `get_or_create_repo`
+        store.set_writeable()
+        return store
     return name
 
 

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 import arraylake as al
+import icechunk
 import modal
 import numpy as np
 import pandas as pd
@@ -25,6 +26,13 @@ TimestampLike = Any
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
+def maybe_commit(store, message) -> None:
+    if isinstance(store, al.repo.ArraylakeStore):
+        store._repo.commit(message)
+    elif isinstance(store, icechunk.IcechunkStore):
+        store.commit(message)
+
+
 #############
 def rewrite_store(store):
     import os
@@ -35,8 +43,19 @@ def rewrite_store(store):
     if isinstance(store, al.repo.ArraylakeStore):
         client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
         return client.get_repo(store._repo._arepo.repo_name).store
+    elif isinstance(store, icechunk.IcechunkStore):
+        # TODO: add imperative `pickle preserves read_only method`
+        #       a context manager won't work here
+        store.set_writeable()
+        return store
     else:
         return store
+
+
+def to_zarr_kwargs(store) -> dict[str, Any]:
+    if isinstance(store, icechunk.IcechunkStore):
+        return {"zarr_format": 3, "consolidated": False}
+    return {}
 
 
 def initialize(ingest) -> None:
@@ -53,10 +72,10 @@ def initialize(ingest) -> None:
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
-    schema.to_zarr(store, group=group, mode="w")
+    logger.debug(f"Writing schema to {group=!r} with extra kwargs: {to_zarr_kwargs(store)!r}")
+    schema.to_zarr(store, group=group, mode="w", **to_zarr_kwargs(store))
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
+    maybe_commit(store, "Write schema for backfill ingest: {}".format(ingest))
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
@@ -95,6 +114,8 @@ def update(ingest: Ingest) -> None:
     if isinstance(store, al.repo.ArraylakeStore):
         # fastpath
         instore = store._repo.to_xarray(group)
+    elif isinstance(store, icechunk.IcechunkStore):
+        instore = xr.open_zarr(store, group=group, zarr_format=3, consolidated=False)
     else:
         instore = xr.open_zarr(store, group=group, mode="r")
 
@@ -191,8 +212,22 @@ def write_times(
     # https://github.com/pydata/xarray/issues/8755
     schema.attrs.update(zarr_group.attrs.asdict())
 
-    logger.info("Writing schema: {}".format(schema))
-    schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
+    logger.info("Writing schema for initialize: {}".format(schema))
+    # TODO: remove when zarr v3 supports write_empty_chunks
+    more_kwargs = to_zarr_kwargs(store)
+    if more_kwargs.get("zarr_format") == 3:
+        for var in schema._variables.values():
+            var.encoding.pop("write_empty_chunks", None)
+            var.encoding.pop("compressor", None)
+            var.encoding.pop("filters", None)
+            # if codecs := var.encoding.pop("filters", None):
+            #     comp = var.encoding.pop("compressor", None)
+            #     var.encoding["codecs"] = codecs + (comp,) if comp is not None else ()
+    for name, var in schema._variables.items():
+        print(name, var.encoding)
+    schema.drop_vars(to_drop).to_zarr(
+        store, group=group, **write_kwargs, compute=False, **more_kwargs
+    )
 
     step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
 
@@ -224,21 +259,24 @@ def write_times(
     # This is an optimization to figure out the `region` in `write_herbie`
     # minimizing number of roundtrips to the object store.
     ntimes = zarr_group[model.runtime_dim].size
-    list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+    results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+
+    if isinstance(store, icechunk.IcechunkStore):
+        logger.info("Merging changesets for icechunk")
+        for _, next_store in results:
+            store.merge(next_store.change_set_bytes())
 
     logger.info("Finished write job for {}.".format(ingest))
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit(
-            f"""
+    message = f"""
             Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
             Data: {ingest.model}, {ingest.product} \n
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-        )
+    maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=900, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -251,7 +289,7 @@ def write_herbie(job, *, schema, ntimes=None):
 
     ingest = job.ingest
     model = models.get_model(ingest.model)
-    store = ingest.zarr_store
+    store = rewrite_store(ingest.zarr_store)
     group = ingest.zarr_group
     assert store is not None
 
@@ -298,14 +336,16 @@ def write_herbie(job, *, schema, ntimes=None):
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
         with dask.config.set(pool=pool):
-            ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
+            ds.drop_vars(ds.coords).to_zarr(
+                store, group=group, region=region, **to_zarr_kwargs(store)
+            )
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
         pool.shutdown()
 
     logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
-    return ds.step
+    return (ds.step.data, store)
 
 
 def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> None:
