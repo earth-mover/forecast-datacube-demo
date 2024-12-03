@@ -198,8 +198,8 @@ class ForecastModel(ABC):
 
             unique_levels = H.inventory(search).level.unique()
         # TODO: really need a better way to handle vertical levels
-        if len(unique_levels) > 1:
-            assert all(" mb" in level for level in unique_levels), (search, unique_levels)
+        if len(unique_levels) > 1 and all(" mb" in level for level in unique_levels):
+            logger.debug(f"Returning isobaricInhPa for {unique_levels=!r}")
             return "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
         else:
             return unique_levels[0], []
@@ -286,20 +286,16 @@ class ForecastModel(ABC):
 
         # TODO: really need a better way to handle vertical levels
         unique_levels = inv.level.unique()
-        if len(unique_levels) > 1:
-            assert all(" mb" in level for level in unique_levels), (search, unique_levels)
+        if len(unique_levels) > 1 and all(" mb" in level for level in unique_levels):
+            logger.debug(f"Returning isobaricInhPa for {unique_levels=!r}")
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
         else:
-            level_dim, levels = unique_levels[0], []
-
+            level_dim, levels = None, []
         ds = xr.combine_nested(
             [xr.merge(cfgrib.open_datasets(path)) for path in sorted(paths)], concat_dim="step"
         )
-        # ds = xr.open_mfdataset(
-        #   sorted(paths), combine="nested", concat_dim="step", engine="cfgrib"
-        #   )
         ds = ds.expand_dims("time").sortby("step")
-        if level_dim in ds.dims:
+        if levels:
             ds = ds.reindex({level_dim: levels})
 
         counts = ds.count("step").compute()
@@ -307,7 +303,9 @@ class ForecastModel(ABC):
             # 3D datasets have lots of corrupt data!
             raise ValueError(f"This dataset has NaNs. Aborting \n{counts}")
 
-        return ds.chunk(step=job.ingest.chunks["step"]).transpose(*self.dim_order)
+        # TODO: could be more precise here.
+        dim_order = tuple(dim for dim in self.dim_order if dim in ds.dims)
+        return ds.chunk(step=job.ingest.chunks["step"]).transpose(*dim_order)
 
 
 def batched(iterable, n):

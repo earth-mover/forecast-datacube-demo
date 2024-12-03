@@ -175,9 +175,11 @@ class GFS(ForecastModel):
         if search is None:
             return schema
 
-        shape = tuple(schema.sizes[dim] for dim in self.dim_order)
-        chunks = tuple(chunksizes[dim] for dim in self.dim_order)
+        # TODO: refactor to helper func
+        dim_order = tuple(dim for dim in self.dim_order if dim in schema.dims)
+        shape = tuple(schema.sizes[dim] for dim in dim_order)
+        chunks = tuple(chunksizes[dim] for dim in dim_order)
         for name in self.get_data_vars(search=search, renames=renames):
-            schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
+            schema[name] = (dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
         return schema

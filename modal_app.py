@@ -282,7 +282,9 @@ def write_herbie(job, *, schema, ntimes=None):
             "step": slice(istep[0], istep[-1] + 1),
             "time": time_region,
         }
-        region.update({dim: slice(None) for dim in model.dim_order if dim not in region})
+        region.update(
+            {dim: slice(None) for dim in model.dim_order if dim not in region and dim in ds.dims}
+        )
 
         logger.info("Writing job {} to region {}".format(job, region))
 

@@ -115,13 +115,13 @@ class HRRR(ForecastModel):
         if search is not None:
             coord, levels = self.get_levels_for_search(search, product=ingest.product)
             if levels:
+                assert coord == "isobaricInhPa"
                 schema[coord] = (
                     coord,
                     np.array(levels, dtype=np.int16),
                     VERTICAL_COORD_ATTRS[coord],
                 )
                 schema[coord].encoding["chunks"] = len(levels)
-                assert coord == "isobaricInhPa"
                 schema["step"].encoding.update(
                     lib.optimize_coord_encoding(schema[coord].data, dx=25, is_regular=True)
                 )
@@ -191,10 +191,12 @@ class HRRR(ForecastModel):
         if search is None:
             return schema
 
-        shape = tuple(schema.sizes[dim] for dim in self.dim_order)
-        chunks = tuple(chunksizes[dim] for dim in self.dim_order)
+        # TODO: refactor to helper func
+        dim_order = tuple(dim for dim in self.dim_order if dim in schema.dims)
+        shape = tuple(schema.sizes[dim] for dim in dim_order)
+        chunks = tuple(chunksizes[dim] for dim in dim_order)
         for name in self.get_data_vars(search, renames=renames):
-            schema[name] = (self.dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
+            schema[name] = (dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
             schema[name].encoding["chunks"] = chunks
             schema[name].encoding["write_empty_chunks"] = False
         return schema
