@@ -23,6 +23,27 @@ VERTICAL_COORD_ATTRS = {
 }
 
 
+HRRR_CRS_WKT = "".join(
+    [
+        'PROJCRS["unknown",BASEGEOGCRS["unknown",DATUM["unknown",ELLIPSOID["unk',
+        'nown",6371229,0,LENGTHUNIT["metre",1,ID["EPSG",9001]]]],PRIMEM["Greenw',
+        'ich",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8901]]],CONVER',
+        'SION["unknown",METHOD["Lambert Conic Conformal',
+        '(2SP)",ID["EPSG",9802]],PARAMETER["Latitude of false origin",38.5,ANGL',
+        'EUNIT["degree",0.0174532925199433],ID["EPSG",8821]],PARAMETER["Longitu',
+        'de of false origin",262.5,ANGLEUNIT["degree",0.0174532925199433],ID["E',
+        'PSG",8822]],PARAMETER["Latitude of 1st standard parallel",38.5,ANGLEUN',
+        'IT["degree",0.0174532925199433],ID["EPSG",8823]],PARAMETER["Latitude',
+        'of 2nd standard parallel",38.5,ANGLEUNIT["degree",0.0174532925199433],',
+        'ID["EPSG",8824]],PARAMETER["Easting at false',
+        'origin",0,LENGTHUNIT["metre",1],ID["EPSG",8826]],PARAMETER["Northing',
+        'at false origin",0,LENGTHUNIT["metre",1],ID["EPSG",8827]]],CS[Cartesia',
+        'n,2],AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1,ID["EPSG",9001]]],A',
+        'XIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1,ID["EPSG",9001]]]]',
+    ]
+)
+
+
 class HRRR(ForecastModel):
     name = "hrrr"
     runtime_dim = "time"
@@ -52,17 +73,10 @@ class HRRR(ForecastModel):
         # GRIB_latitudeOfFirstGridPointInDegrees : 21.138123
         # GRIB_longitudeOfFirstGridPointInDegrees : 237.280472
 
-        import cartopy.crs as ccrs
         import pyproj
 
         # https://github.com/blaylockbk/Herbie/discussions/45#discussioncomment-8570650
-        projection = ccrs.LambertConformal(
-            central_longitude=262.5,  # GRIB_LoVInDegrees
-            central_latitude=38.5,  # GRIB_LaDInDegrees : 38.5
-            standard_parallels=(38.5, 38.5),  # (GRIB_Latin1InDegrees, GRIB_Latin2InDegrees)
-            globe=ccrs.Globe(semimajor_axis=6371229, semiminor_axis=6371229),
-        )
-        transformer = pyproj.Transformer.from_crs(projection.to_wkt(), 4326, always_xy=True)
+        transformer = pyproj.Transformer.from_crs(HRRR_CRS_WKT, 4326, always_xy=True)
 
         dx = dy = 3000
         Nx, Ny = 1799, 1059
@@ -145,25 +159,7 @@ class HRRR(ForecastModel):
             tuple(),
             0,
             {
-                "crs_wkt": "".join(
-                    [
-                        'PROJCRS["unknown",BASEGEOGCRS["unknown",DATUM["unknown",ELLIPSOID["unk',
-                        'nown",6371229,0,LENGTHUNIT["metre",1,ID["EPSG",9001]]]],PRIMEM["Greenw',
-                        'ich",0,ANGLEUNIT["degree",0.0174532925199433],ID["EPSG",8901]]],CONVER',
-                        'SION["unknown",METHOD["Lambert Conic Conformal',
-                        '(2SP)",ID["EPSG",9802]],PARAMETER["Latitude of false origin",38.5,ANGL',
-                        'EUNIT["degree",0.0174532925199433],ID["EPSG",8821]],PARAMETER["Longitu',
-                        'de of false origin",262.5,ANGLEUNIT["degree",0.0174532925199433],ID["E',
-                        'PSG",8822]],PARAMETER["Latitude of 1st standard parallel",38.5,ANGLEUN',
-                        'IT["degree",0.0174532925199433],ID["EPSG",8823]],PARAMETER["Latitude',
-                        'of 2nd standard parallel",38.5,ANGLEUNIT["degree",0.0174532925199433],',
-                        'ID["EPSG",8824]],PARAMETER["Easting at false',
-                        'origin",0,LENGTHUNIT["metre",1],ID["EPSG",8826]],PARAMETER["Northing',
-                        'at false origin",0,LENGTHUNIT["metre",1],ID["EPSG",8827]]],CS[Cartesia',
-                        'n,2],AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1,ID["EPSG",9001]]],A',
-                        'XIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1,ID["EPSG",9001]]]]',
-                    ]
-                ),
+                "crs_wkt": HRRR_CRS_WKT,
                 "semi_major_axis": 6371229.0,
                 "semi_minor_axis": 6371229.0,
                 "inverse_flattening": 0.0,
