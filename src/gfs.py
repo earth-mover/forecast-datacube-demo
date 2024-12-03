@@ -1,6 +1,6 @@
 import time
+from collections.abc import Hashable, Sequence
 from datetime import datetime, timedelta
-from typing import Hashable, Sequence
 
 import dask.array
 import fsspec
@@ -25,7 +25,7 @@ class GFS(ForecastModel):
     dim_order = ("longitude", "latitude", "time", "step")
 
     def get_steps(self, time: pd.Timestamp) -> Sequence:
-        return list(range(0, 120)) + list(range(120, 385, 3))
+        return list(range(120)) + list(range(120, 385, 3))
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
         """

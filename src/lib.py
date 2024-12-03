@@ -5,10 +5,11 @@ import random
 import string
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum, auto
-from typing import Any, Hashable, Iterable, Literal, Sequence
+from typing import Any, Literal
 
 import cfgrib
 import fsspec

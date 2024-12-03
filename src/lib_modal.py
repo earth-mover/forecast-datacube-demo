@@ -1,6 +1,7 @@
 """Utility functions for modal."""
 
-from typing import Sequence, TypedDict
+from collections.abc import Sequence
+from typing import TypedDict
 
 import modal
 from modal import Image
