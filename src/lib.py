@@ -13,11 +13,11 @@ from typing import Any, Literal
 
 import cfgrib
 import fsspec
+import numcodecs
 import numpy as np
 import pandas as pd
 import tomllib
 import xarray as xr
-import zarr
 
 TimestampLike = Any
 
@@ -382,11 +382,11 @@ def optimize_coord_encoding(values, dx, is_regular=False):
         dx_all = np.diff(values)
         np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
 
-    offset_codec = zarr.FixedScaleOffset(
+    offset_codec = numcodecs.FixedScaleOffset(
         offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
     )
-    delta_codec = zarr.Delta("i8", "i2")
-    compressor = zarr.Blosc(cname="zstd")
+    delta_codec = numcodecs.Delta("i8", "i2")
+    compressor = numcodecs.Blosc(cname="zstd")
 
     enc0 = offset_codec.encode(values)
     if is_regular:
