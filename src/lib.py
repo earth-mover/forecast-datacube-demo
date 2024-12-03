@@ -298,7 +298,11 @@ class ForecastModel(ABC):
         else:
             level_dim, levels = None, []
         ds = xr.combine_nested(
-            [xr.merge(cfgrib.open_datasets(path)) for path in sorted(paths)], concat_dim="step"
+            [
+                xr.merge(cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}))
+                for path in sorted(paths)
+            ],
+            concat_dim="step",
         )
         ds = ds.expand_dims("time").sortby("step")
         if levels:
