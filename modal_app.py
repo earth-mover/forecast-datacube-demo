@@ -59,7 +59,7 @@ def initialize(ingest) -> None:
         store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
 def backfill(
     ingest: Ingest,
     *,
@@ -82,7 +82,7 @@ def backfill(
     write_times(since=since, till=till, ingest=ingest, initialize=True, mode="a")
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
 def update(ingest: Ingest) -> None:
     """This function sets up the `write_times` function for a new update to the dataset."""
     logger.info("update: Running for ingest {}".format(ingest))
@@ -238,7 +238,7 @@ def write_times(
         )
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=600, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=900, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     tic = time.time()
 

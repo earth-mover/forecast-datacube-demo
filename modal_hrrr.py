@@ -63,16 +63,16 @@ def hrrr_update_3d():
     driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-3d.toml")
 
 
-@app.function(**MODAL_FUNCTION_KWARGS)
-def hrrr_backfill_rechunk():
-    file = "src/configs/hrrr-demo.toml"
-    mode = WriteMode.BACKFILL
-    since = datetime.utcnow() - timedelta(days=3)
-    till = datetime.utcnow() - timedelta(days=1, hours=12)
+# @app.function(**MODAL_FUNCTION_KWARGS)
+# def hrrr_backfill_rechunk():
+#     file = "src/configs/hrrr-demo.toml"
+#     mode = WriteMode.BACKFILL
+#     since = datetime.utcnow() - timedelta(days=3)
+#     till = datetime.utcnow() - timedelta(days=1, hours=12)
 
-    driver(mode=mode, toml_file_path=file, since=since, till=till)
+#     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
-def hrrr_update_rechunk():
-    driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-demo.toml")
+# @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("57 * * * *"))
+# def hrrr_update_rechunk():
+#     driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/hrrr-demo.toml")
