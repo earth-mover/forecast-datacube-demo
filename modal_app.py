@@ -240,6 +240,13 @@ def write_times(
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=900, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
+    from concurrent.futures import ThreadPoolExecutor
+
+    import dask
+
+    # manage our own pool so we can shutdown intentionally
+    pool = ThreadPoolExecutor()
+
     tic = time.time()
 
     ingest = job.ingest
@@ -290,9 +297,12 @@ def write_herbie(job, *, schema, ntimes=None):
 
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
-        ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
+        with dask.config.set(pool=pool):
+            ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
+    finally:
+        pool.shutdown()
 
     logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
     return ds.step
