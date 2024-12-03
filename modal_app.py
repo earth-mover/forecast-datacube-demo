@@ -276,14 +276,14 @@ def write_times(
     maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=90, retries=3)
 def write_herbie(job, *, schema, ntimes=None):
     from concurrent.futures import ThreadPoolExecutor
 
     import dask
 
     # manage our own pool so we can shutdown intentionally
-    pool = ThreadPoolExecutor()
+    pool = ThreadPoolExecutor(4)
 
     tic = time.time()
 
