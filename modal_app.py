@@ -223,8 +223,6 @@ def write_times(
             # if codecs := var.encoding.pop("filters", None):
             #     comp = var.encoding.pop("compressor", None)
             #     var.encoding["codecs"] = codecs + (comp,) if comp is not None else ()
-    for name, var in schema._variables.items():
-        print(name, var.encoding)
     schema.drop_vars(to_drop).to_zarr(
         store, group=group, **write_kwargs, compute=False, **more_kwargs
     )
@@ -276,7 +274,7 @@ def write_times(
     maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=90, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=120, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
     from concurrent.futures import ThreadPoolExecutor
 
