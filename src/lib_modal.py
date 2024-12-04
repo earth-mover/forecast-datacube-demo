@@ -7,10 +7,11 @@ import modal
 from modal import Image
 
 MODAL_IMAGE = (
-    Image.debian_slim(python_version="3.11")
-    .apt_install("libglib2.0-dev", "curl")
+    Image.debian_slim(python_version="3.12")
+    .apt_install("curl")
     .pip_install(
-        "arraylake",
+        "arraylake>=0.13.1",
+        "icechunk >= 0.1.0a7",
         "certifi",
         "cfgrib",
         "dask",
@@ -18,17 +19,10 @@ MODAL_IMAGE = (
         "herbie-data",
         "s3fs",
         "xarray",
-        "pydantic-core==2.18.2",
-        "pydantic==2.7.1",
         "fastapi>=0.108",
+        "eccodes==2.37",
+        "pyproj",
     )
-    .pip_install("eccodes", "ecmwflibs")
-    .env(
-        {
-            "SSL_CERT_FILE": "/opt/conda/lib/python3.11/site-packages/certifi/cacert.pem",
-        }
-    )
-    .run_commands("python -m eccodes selfcheck")
 )
 
 
