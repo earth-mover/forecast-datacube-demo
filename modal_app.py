@@ -30,26 +30,26 @@ def maybe_commit(store, message) -> None:
     if isinstance(store, al.repo.ArraylakeStore):
         store._repo.commit(message)
     elif isinstance(store, icechunk.IcechunkStore):
-        store.commit(message)
+        store.session.commit(message)
 
 
 #############
-def rewrite_store(store):
+def get_store(uri):
     import os
 
     import arraylake as al
     from arraylake import Client
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
-        return client.get_repo(store._repo._arepo.repo_name).store
-    elif isinstance(store, icechunk.IcechunkStore):
+    client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
+    repo = lib.maybe_get_repo(uri, client=client)
+    if isinstance(repo, al.repo.Repo):
+        return repo.store
+    elif isinstance(repo, icechunk.Repository):
         # TODO: add imperative `pickle preserves read_only method`
         #       a context manager won't work here
-        store.set_writeable()
-        return store
+        return repo.writable_session("main").store
     else:
-        return store
+        return repo
 
 
 def to_zarr_kwargs(store) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError(
@@ -90,7 +90,6 @@ def backfill(
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -107,8 +106,7 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
     assert store is not None
 
     if isinstance(store, al.repo.ArraylakeStore):
@@ -181,7 +179,8 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
+    ingest.zarr_store = store
     model = models.get_model(ingest.model)
     assert store is not None
 
@@ -287,9 +286,8 @@ def write_herbie(job, *, schema, ntimes=None):
 
     ingest = job.ingest
     model = models.get_model(ingest.model)
-    store = rewrite_store(ingest.zarr_store)
+    store = ingest.zarr_store
     group = ingest.zarr_group
-    assert store is not None
 
     logger.debug("Processing job {}".format(job))
     try:
@@ -352,7 +350,8 @@ def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> No
     # Set this here for Arraylake so all tasks start with the same state
     ingests = ingest_jobs.values()
     for i in ingests:
-        i.zarr_store = lib.get_zarr_store(i.store)
+        # create the store if needed
+        lib.maybe_get_repo(i.store)
 
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
