@@ -29,6 +29,8 @@ applib = modal.App("earthmover-forecast-ingest-lib")
 def maybe_commit(store, message) -> None:
     if isinstance(store, al.repo.ArraylakeStore):
         store._repo.commit(message)
+    elif isinstance(store, icechunk.Session):
+        store.commit(message)
     elif isinstance(store, icechunk.IcechunkStore):
         store.session.commit(message)
 
@@ -258,11 +260,6 @@ def write_times(
     ntimes = zarr_group[model.runtime_dim].size
     results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
-    if isinstance(store, icechunk.IcechunkStore):
-        logger.info("Merging changesets for icechunk")
-        for _, next_store in results:
-            store.merge(next_store.change_set_bytes())
-
     logger.info("Finished write job for {}.".format(ingest))
     message = f"""
             Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
@@ -270,7 +267,14 @@ def write_times(
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-    maybe_commit(store, message)
+    if isinstance(store, icechunk.IcechunkStore):
+        logger.info("Merging changesets for icechunk")
+        session = store.session
+        for _, next_store in results:
+            session.merge(next_store.session)
+        maybe_commit(session, message)
+    else:
+        maybe_commit(store, message)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=120, retries=10)
