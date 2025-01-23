@@ -11,14 +11,15 @@ MODAL_IMAGE = (
     .apt_install("curl")
     .pip_install(
         "arraylake>=0.13.3",
-        "icechunk >= 0.1.0a12",
+        "icechunk >= 0.1.0a14",
+        "zarr>=3",
         "certifi",
         "cfgrib",
         "dask",
         "fsspec",
         "herbie-data",
         "s3fs",
-        "xarray",
+        "xarray==2025.1.0",
         "fastapi>=0.108",
         "eccodes==2.37",
         "pyproj",
