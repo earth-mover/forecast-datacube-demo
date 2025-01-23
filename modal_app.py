@@ -277,7 +277,7 @@ def write_times(
         maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=120, retries=10)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
     from concurrent.futures import ThreadPoolExecutor
 
