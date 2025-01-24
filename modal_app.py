@@ -364,10 +364,14 @@ def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> No
     ingest_jobs = lib.parse_toml_config(toml_file_path)
 
     # Set this here for Arraylake so all tasks start with the same state
-    ingests = ingest_jobs.values()
-    for i in ingests:
-        # create the store if needed
-        lib.maybe_get_repo(i.store)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, message="The value of the smallest subnormal"
+        )
+        ingests = ingest_jobs.values()
+        for i in ingests:
+            # create the store if needed
+            lib.maybe_get_repo(i.store)
 
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
