@@ -21,6 +21,11 @@ import xarray as xr
 
 TimestampLike = Any
 
+# not great, but we aren't doing any computations here
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message="The value of the smallest subnormal"
+)
+
 
 def utcnow():
     # herbie requires timezone-naive timestamps
