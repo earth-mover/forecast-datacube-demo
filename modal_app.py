@@ -165,6 +165,9 @@ def write_times(
     (if ``mode="a"`` in ``write_kwargs``) by writing a "schema" dataset of the right
     shape. Then begins a distributed region write to that new section of the dataset.
 
+    This is an orchestrator that cuts up the job in to chunks and sends them on.
+    The actual writing happens in the spawned ``write_herbie`` functions.
+
     Parameters
     ----------
     model: ForecastModel
@@ -279,6 +282,7 @@ def write_times(
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
+    """Actual writes data to disk."""
     from concurrent.futures import ThreadPoolExecutor
 
     import dask
@@ -350,6 +354,7 @@ def write_herbie(job, *, schema, ntimes=None):
 
 
 def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> None:
+    """Simply dispatches between update and backfill modes."""
     ingest_jobs = lib.parse_toml_config(toml_file_path)
 
     # Set this here for Arraylake so all tasks start with the same state
