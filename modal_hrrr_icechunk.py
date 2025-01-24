@@ -48,7 +48,7 @@ def hrrr_backfill_icechunk_latest():
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, timeout=1200, schedule=modal.Cron("57 * * * *"))
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=20 * 60, schedule=modal.Cron("57 * * * *"))
 def hrrr_update_solar_icechunk_latest():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
     file = "src/configs/hrrr-icechunk.toml"

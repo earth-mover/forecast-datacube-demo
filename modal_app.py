@@ -346,10 +346,16 @@ def write_herbie(job, *, schema, ntimes=None):
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
-        logger.info("Shutting down pool after {} seconds".format(time.time() - tic))
+        logger.info(
+            "Shutting down pool for job {} after {} seconds".format(
+                job.summarize(), time.time() - tic
+            )
+        )
         pool.shutdown()
 
-    logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
+    logger.info(
+        "Finished writing job {}. Took {} seconds".format(job.summarize(), time.time() - tic)
+    )
     return (ds.step.data, store)
 
 

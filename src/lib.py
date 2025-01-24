@@ -97,6 +97,10 @@ class Job:
     steps: list[int]
     ingest: Ingest
 
+    def summarize(self):
+        """short repr"""
+        return f"runtime={self.runtime}, steps={self.steps}, ingest=({self.ingest.name}, {self.ingest.model})"
+
 
 class ForecastModel(ABC):
     name: str
