@@ -342,6 +342,7 @@ def write_herbie(job, *, schema, ntimes=None):
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
+        logger.info("Shutting down pool after {} seconds".format(time.time() - tic))
         pool.shutdown()
 
     logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
