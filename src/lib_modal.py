@@ -11,6 +11,7 @@ MODAL_IMAGE = (
     .apt_install("curl")
     .pip_install(
         "arraylake>=0.13.3",
+        "zarr<3",
         "certifi",
         "cfgrib",
         "dask",
