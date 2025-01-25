@@ -11,10 +11,10 @@ MODAL_IMAGE = (
     .apt_install("curl")
     .pip_install(
         "arraylake>=0.13.3",
-        "zarr<3",
+        "zarr<2.17",
         "certifi",
         "cfgrib",
-        "dask",
+        "dask==2024.09",
         "fsspec",
         "herbie-data",
         "s3fs",
