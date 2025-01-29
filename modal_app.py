@@ -84,7 +84,7 @@ def initialize(ingest) -> None:
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
-def verify(ingest: Ingest, *, nsteps=5):
+def verify(ingest: Ingest, *, nsteps=None):
     import dask
 
     tic = time.time()
@@ -96,7 +96,9 @@ def verify(ingest: Ingest, *, nsteps=5):
     timedim, stepdim = model.runtime_dim, model.step_dim
 
     runtime = pd.Timestamp(random.choice(inrepo[timedim].data))
-    step = sorted(random.sample(model.get_steps(runtime), k=nsteps))
+    step = model.get_steps(runtime)
+    if nsteps is not None:
+        step = sorted(random.sample(step, k=nsteps))
     job = lib.Job(runtime=runtime, steps=step, ingest=ingest)
     logger.info("verify: Running for job: {}".format(job))
 
