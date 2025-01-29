@@ -340,9 +340,13 @@ def write_herbie(job, *, schema, ntimes=None):
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
         with dask.config.set(pool=pool):
-            ds.drop_vars(ds.coords).compute().to_zarr(
-                store, group=group, region=region, **to_zarr_kwargs(store)
+            loaded = ds.drop_vars(ds.coords).compute()
+            logger.info(
+                "      loaded data for job {}. Took {} seconds since start".format(
+                    job.summarize(), time.time() - tic
+                )
             )
+            loaded.to_zarr(store, group=group, region=region, **to_zarr_kwargs(store))
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
