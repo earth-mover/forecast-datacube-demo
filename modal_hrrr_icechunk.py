@@ -37,7 +37,7 @@ def main(mode: str, toml_file: str, since: str, till: str | None = None):
 #     driver(mode=mode, toml_file_path=file)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("15 * * * *"), timeout=300)
+@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("*/5 * * * *"), timeout=300)
 def hrrr_verify_icechunk():
     driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr-icechunk.toml")
 
