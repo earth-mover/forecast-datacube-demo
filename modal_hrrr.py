@@ -5,7 +5,7 @@ from datetime import timedelta
 import modal
 
 from modal_app import applib, driver
-from src.lib import WriteMode, utcnow
+from src.lib import ReadMode, WriteMode, utcnow
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 app = modal.App("hrrr-forecast-ingest")
@@ -21,6 +21,14 @@ def main(mode: str, toml_file: str, since: str, till: str | None = None):
 
 
 # =======
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("45 * * * *"), timeout=1500)
+def hrrr_verify_solar():
+    """
+    *Deploy* this :update" function wtih `modal deploy modal_hrrr.py --name hrrr_update_solar`.
+    """
+    driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr.toml")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS)

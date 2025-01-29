@@ -45,6 +45,10 @@ class WriteMode(StrEnum):
     UPDATE = auto()
 
 
+class ReadMode(StrEnum):
+    VERIFY = auto()
+
+
 @dataclass
 class Ingest:
     """
@@ -453,3 +457,10 @@ def merge_searches(searches: Sequence[str]) -> str:
     Assuming that a simple `|` will do sensible things.
     """
     return "|".join(searches)
+
+
+def clean_dataset(ds: xr.Dataset, model: ForecastModel) -> xr.Dataset:
+    """Clean up dataset for easy `assert_allclose`"""
+    # i usually muck with the coordinate variables so just drop them
+    to_drop = [name for name, var in ds.variables.items() if model.runtime_dim not in var.dims]
+    return ds.drop_vars(to_drop).reset_coords(drop=True)
