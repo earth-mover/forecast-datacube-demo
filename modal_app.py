@@ -1,6 +1,7 @@
 import itertools
 import logging
 import random
+import subprocess
 import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
@@ -345,6 +346,9 @@ def write_herbie(job, *, schema, ntimes=None):
 
 def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=None) -> None:
     ingest_jobs = lib.parse_toml_config(toml_file_path)
+
+    env = subprocess.run(["pip", "list"], capture_output=True, text=True)
+    logger.info(env.stdout)
 
     # Set this here for Arraylake so all tasks start with the same state
     ingests = ingest_jobs.values()
