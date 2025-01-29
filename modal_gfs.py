@@ -5,7 +5,7 @@ from datetime import timedelta
 import modal
 
 from modal_app import applib, driver
-from src.lib import WriteMode, utcnow
+from src.lib import ReadMode, WriteMode, utcnow
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 app = modal.App("gfs-forecast-ingest")
@@ -17,6 +17,11 @@ app.include(applib)  # necessary
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 0,6,12,18 * * *"))
 def gfs_update_solar():
     driver(mode=WriteMode.UPDATE, toml_file_path="src/configs/gfs.toml")
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, timeout=3600, schedule=modal.Cron("30 * * * *"))
+def gfs_verify_solar():
+    driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/gfs.toml")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600)
