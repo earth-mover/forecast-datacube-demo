@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import modal
 
 from modal_app import applib, driver
-from src.lib import WriteMode, utcnow
+from src.lib import ReadMode, WriteMode, utcnow
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 app = modal.App("hrrr-icehunk-ingest")
@@ -35,6 +35,11 @@ def main(mode: str, toml_file: str, since: str, till: str | None = None):
 #     file = "src/configs/hrrr-icechunk.toml"
 #     mode = WriteMode.UPDATE
 #     driver(mode=mode, toml_file_path=file)
+
+
+@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("15 * * * *"), timeout=300)
+def hrrr_verify_icechunk():
+    driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr-icechunk.toml")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=7200)

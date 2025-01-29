@@ -88,8 +88,10 @@ def verify(ingest: Ingest, *, nsteps=5):
     import dask
 
     tic = time.time()
-    store = lib.get_zarr_store(ingest.store)
-    inrepo = xr.open_dataset(store, group=ingest.zarr_group, chunks=None, engine="zarr")
+    store = get_store(ingest.store)
+    inrepo = xr.open_dataset(
+        store, group=ingest.zarr_group, chunks=None, engine="zarr", consolidated=False
+    )
     model = models.get_model(ingest.model)
     timedim, stepdim = model.runtime_dim, model.step_dim
 
