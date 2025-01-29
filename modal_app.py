@@ -1,7 +1,10 @@
 import itertools
 import logging
+import random
+import subprocess
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -14,7 +17,7 @@ import xarray as xr
 import zarr
 
 from src import lib, models
-from src.lib import Ingest, WriteMode, get_logger, merge_searches
+from src.lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 logger = get_logger()
@@ -78,6 +81,41 @@ def initialize(ingest) -> None:
     schema.to_zarr(store, group=group, mode="w", **to_zarr_kwargs(store))
 
     maybe_commit(store, "Write schema for backfill ingest: {}".format(ingest))
+
+
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
+def verify(ingest: Ingest, *, nsteps=5):
+    import dask
+
+    tic = time.time()
+    store = lib.get_zarr_store(ingest.store)
+    inrepo = xr.open_dataset(store, group=ingest.zarr_group, chunks=None, engine="zarr")
+    model = models.get_model(ingest.model)
+    timedim, stepdim = model.runtime_dim, model.step_dim
+
+    runtime = pd.Timestamp(random.choice(inrepo[timedim].data))
+    step = sorted(random.sample(model.get_steps(runtime), k=nsteps))
+    job = lib.Job(runtime=runtime, steps=step, ingest=ingest)
+    logger.info("verify: Running for job: {}".format(job))
+
+    actual = inrepo.sel({timedim: [runtime], stepdim: [pd.Timedelta(s, unit="h") for s in step]})
+    expected = model.open_herbie(job)
+    # manage our own pool so we can shutdown intentionally
+    pool = ThreadPoolExecutor()
+    try:
+        # attributes are different, so identical won't work.
+        # load now, otherwise Xarray loads in a for-loop
+        with dask.config.set(pool=pool):
+            xr.testing.assert_allclose(
+                lib.clean_dataset(actual, model).chunk().load(),
+                lib.clean_dataset(expected, model).load(),
+            )
+        logger.info("Successfully verified!")
+    except Exception as e:
+        raise RuntimeError(f"Verify failed for {job}") from e
+    finally:
+        pool.shutdown()
+    logger.info("Finished verifying job {}. Took {} seconds".format(job, time.time() - tic))
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
@@ -283,8 +321,6 @@ def write_times(
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
     """Actual writes data to disk."""
-    from concurrent.futures import ThreadPoolExecutor
-
     import dask
 
     # manage our own pool so we can shutdown intentionally
@@ -363,9 +399,12 @@ def write_herbie(job, *, schema, ntimes=None):
     return (ds.step.data, store)
 
 
-def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> None:
+def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=None) -> None:
     """Simply dispatches between update and backfill modes."""
     ingest_jobs = lib.parse_toml_config(toml_file_path)
+
+    env = subprocess.run(["pip", "list"], capture_output=True, text=True)
+    logger.info(env.stdout)
 
     # Set this here for Arraylake so all tasks start with the same state
     with warnings.catch_warnings():
@@ -383,6 +422,9 @@ def driver(*, mode: WriteMode, toml_file_path: str, since=None, till=None) -> No
 
     elif mode is WriteMode.UPDATE:
         list(update.map(ingests))
+
+    elif mode is ReadMode.VERIFY:
+        list(verify.map(ingests))
 
     else:
         raise NotImplementedError
