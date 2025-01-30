@@ -26,7 +26,7 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
-LOGGING_STORE: bool = False  # TODO: make a commandline flag / env var
+LOGGING_STORE: bool = True  # TODO: make a commandline flag / env var
 
 applib = modal.App("earthmover-forecast-ingest-lib")
 
@@ -324,7 +324,7 @@ def write_times(
         maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=240, retries=10)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
     """Actual writes data to disk."""
     import dask
