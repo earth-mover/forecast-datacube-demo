@@ -21,6 +21,11 @@ import xarray as xr
 
 TimestampLike = Any
 
+# not great, but we aren't doing any computations here
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message="The value of the smallest subnormal"
+)
+
 
 def utcnow():
     # herbie requires timezone-naive timestamps
@@ -95,6 +100,10 @@ class Job:
     runtime: pd.Timestamp
     steps: list[int]
     ingest: Ingest
+
+    def summarize(self):
+        """short repr"""
+        return f"runtime={self.runtime}, steps={self.steps}, ingest=({self.ingest.name}, {self.ingest.model})"
 
 
 class ForecastModel(ABC):
@@ -358,13 +367,20 @@ def open_single_grib(
     return ds
 
 
-def get_zarr_store(name):
+def maybe_get_repo(name, client=None):
     import arraylake as al
 
-    ALPREFIX = "arraylake://"
-    if name.startswith(ALPREFIX):
+    if client is None:
         client = al.Client()
-        return client.get_or_create_repo(name.removeprefix(ALPREFIX)).store
+
+    ALPREFIX = "arraylake://"
+    ICEPREFIX = "icechunk://"
+    if name.startswith(ALPREFIX):
+        logger.info(f"Opening Arraylake store: {name!r}")
+        return client.get_or_create_repo(name.removeprefix(ALPREFIX))
+    elif name.startswith(ICEPREFIX):
+        logger.info(f"Opening Icechunk store: {name!r}")
+        return client.get_or_create_repo(name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.V2)
     return name
 
 

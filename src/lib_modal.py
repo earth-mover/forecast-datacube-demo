@@ -10,15 +10,15 @@ MODAL_IMAGE = (
     Image.debian_slim(python_version="3.12")
     .apt_install("curl")
     .pip_install(
-        "arraylake>=0.13",
-        "zarr==2.18.2",
+        "arraylake>=0.13.3",
+        "icechunk >= 0.1.0a12",
         "certifi",
         "cfgrib",
-        "dask==2024.09",
+        "dask",
         "fsspec",
         "herbie-data",
         "s3fs",
-        "xarray==2024.09",
+        "xarray",
         "fastapi>=0.108",
         "eccodes==2.37",
         "pyproj",

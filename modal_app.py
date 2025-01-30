@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 import arraylake as al
+import icechunk
 import modal
 import numpy as np
 import pandas as pd
@@ -25,21 +26,43 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
+LOGGING_STORE: bool = True  # TODO: make a commandline flag / env var
+
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
+def maybe_commit(store, message) -> None:
+    if isinstance(store, al.repo.ArraylakeStore):
+        store._repo.commit(message)
+    elif isinstance(store, icechunk.Session):
+        store.commit(message)
+    elif isinstance(store, icechunk.IcechunkStore):
+        store.session.commit(message)
+
+
 #############
-def rewrite_store(store):
+def get_store(uri):
     import os
 
     import arraylake as al
     from arraylake import Client
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
-        return client.get_repo(store._repo._arepo.repo_name).store
+    client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
+    repo = lib.maybe_get_repo(uri, client=client)
+    if isinstance(repo, al.repo.Repo):
+        return repo.store
+    elif isinstance(repo, icechunk.Repository):
+        # TODO: add imperative `pickle preserves read_only method`
+        #       a context manager won't work here
+        return repo.writable_session("main").store
     else:
-        return store
+        return repo
+
+
+def to_zarr_kwargs(store) -> dict[str, Any]:
+    if isinstance(store, icechunk.IcechunkStore):
+        return {"zarr_format": 3, "consolidated": False}
+    return {}
 
 
 def initialize(ingest) -> None:
@@ -47,7 +70,7 @@ def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError(
@@ -56,24 +79,28 @@ def initialize(ingest) -> None:
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
-    schema.to_zarr(store, group=group, mode="w")
+    logger.debug(f"Writing schema to {group=!r} with extra kwargs: {to_zarr_kwargs(store)!r}")
+    schema.to_zarr(store, group=group, mode="w", **to_zarr_kwargs(store))
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
+    maybe_commit(store, "Write schema for backfill ingest: {}".format(ingest))
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
-def verify(ingest: Ingest, *, nsteps=5):
+def verify(ingest: Ingest, *, nsteps=None):
     import dask
 
     tic = time.time()
-    store = lib.get_zarr_store(ingest.store)
-    inrepo = xr.open_dataset(store, group=ingest.zarr_group, chunks=None, engine="zarr")
+    store = get_store(ingest.store)
+    inrepo = xr.open_dataset(
+        store, group=ingest.zarr_group, chunks=None, engine="zarr", consolidated=False
+    )
     model = models.get_model(ingest.model)
     timedim, stepdim = model.runtime_dim, model.step_dim
 
     runtime = pd.Timestamp(random.choice(inrepo[timedim].data))
-    step = sorted(random.sample(model.get_steps(runtime), k=nsteps))
+    step = model.get_steps(runtime)
+    if nsteps is not None:
+        step = sorted(random.sample(step, k=nsteps))
     job = lib.Job(runtime=runtime, steps=step, ingest=ingest)
     logger.info("verify: Running for job: {}".format(job))
 
@@ -109,7 +136,6 @@ def backfill(
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -126,13 +152,14 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
     assert store is not None
 
     if isinstance(store, al.repo.ArraylakeStore):
         # fastpath
         instore = store._repo.to_xarray(group)
+    elif isinstance(store, icechunk.IcechunkStore):
+        instore = xr.open_zarr(store, group=group, zarr_format=3, consolidated=False)
     else:
         instore = xr.open_zarr(store, group=group, mode="r")
 
@@ -182,6 +209,9 @@ def write_times(
     (if ``mode="a"`` in ``write_kwargs``) by writing a "schema" dataset of the right
     shape. Then begins a distributed region write to that new section of the dataset.
 
+    This is an orchestrator that cuts up the job in to chunks and sends them on.
+    The actual writing happens in the spawned ``write_herbie`` functions.
+
     Parameters
     ----------
     model: ForecastModel
@@ -198,7 +228,8 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    store = get_store(ingest.store)
+    ingest.zarr_store = store
     model = models.get_model(ingest.model)
     assert store is not None
 
@@ -229,8 +260,20 @@ def write_times(
     # https://github.com/pydata/xarray/issues/8755
     schema.attrs.update(zarr_group.attrs.asdict())
 
-    logger.info("Writing schema: {}".format(schema))
-    schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
+    logger.info("Writing schema for initialize: {}".format(schema))
+    # TODO: remove when zarr v3 supports write_empty_chunks
+    more_kwargs = to_zarr_kwargs(store)
+    if more_kwargs.get("zarr_format") == 3:
+        for var in schema._variables.values():
+            var.encoding.pop("write_empty_chunks", None)
+            var.encoding.pop("compressor", None)
+            var.encoding.pop("filters", None)
+            # if codecs := var.encoding.pop("filters", None):
+            #     comp = var.encoding.pop("compressor", None)
+            #     var.encoding["codecs"] = codecs + (comp,) if comp is not None else ()
+    schema.drop_vars(to_drop).to_zarr(
+        store, group=group, **write_kwargs, compute=False, **more_kwargs
+    )
 
     step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
 
@@ -262,26 +305,32 @@ def write_times(
     # This is an optimization to figure out the `region` in `write_herbie`
     # minimizing number of roundtrips to the object store.
     ntimes = zarr_group[model.runtime_dim].size
-    list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+    results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
     logger.info("Finished write job for {}.".format(ingest))
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit(
-            f"""
+    message = f"""
             Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
             Data: {ingest.model}, {ingest.product} \n
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-        )
+    if isinstance(store, icechunk.IcechunkStore):
+        logger.info("Merging changesets for icechunk")
+        session = store.session
+        for _, next_store in results:
+            session.merge(next_store.session)
+        maybe_commit(session, message)
+    else:
+        maybe_commit(store, message)
 
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=900, retries=3)
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
 def write_herbie(job, *, schema, ntimes=None):
+    """Actual writes data to disk."""
     import dask
 
     # manage our own pool so we can shutdown intentionally
-    pool = ThreadPoolExecutor()
+    pool = ThreadPoolExecutor(4)
 
     tic = time.time()
 
@@ -289,7 +338,6 @@ def write_herbie(job, *, schema, ntimes=None):
     model = models.get_model(ingest.model)
     store = ingest.zarr_store
     group = ingest.zarr_group
-    assert store is not None
 
     logger.debug("Processing job {}".format(job))
     try:
@@ -334,26 +382,51 @@ def write_herbie(job, *, schema, ntimes=None):
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
         with dask.config.set(pool=pool):
-            ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
+            loaded = ds.drop_vars(ds.coords).compute()
+            logger.info(
+                "      loaded data for job {}. Took {} seconds since start".format(
+                    job.summarize(), time.time() - tic
+                )
+            )
+            if LOGGING_STORE:
+                from zarr.storage import LoggingStore
+
+                store_ = LoggingStore(store)
+            else:
+                store_ = store
+            loaded.to_zarr(store_, group=group, region=region, **to_zarr_kwargs(store))
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
+        logger.info(
+            "Shutting down pool for job {}. Took {} seconds".format(
+                job.summarize(), time.time() - tic
+            )
+        )
         pool.shutdown()
 
-    logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
-    return ds.step
+    logger.info(
+        "      Finished writing job {}. Took {} seconds".format(job.summarize(), time.time() - tic)
+    )
+    return (ds.step.data, store)
 
 
 def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=None) -> None:
+    """Simply dispatches between update and backfill modes."""
     ingest_jobs = lib.parse_toml_config(toml_file_path)
 
     env = subprocess.run(["pip", "list"], capture_output=True, text=True)
     logger.info(env.stdout)
 
     # Set this here for Arraylake so all tasks start with the same state
-    ingests = ingest_jobs.values()
-    for i in ingests:
-        i.zarr_store = lib.get_zarr_store(i.store)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, message="The value of the smallest subnormal"
+        )
+        ingests = ingest_jobs.values()
+        for i in ingests:
+            # create the store if needed
+            lib.maybe_get_repo(i.store)
 
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
