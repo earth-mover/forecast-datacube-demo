@@ -26,6 +26,8 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
+LOGGING_STORE: bool = False  # TODO: make a commandline flag / env var
+
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
@@ -386,7 +388,13 @@ def write_herbie(job, *, schema, ntimes=None):
                     job.summarize(), time.time() - tic
                 )
             )
-            loaded.to_zarr(store, group=group, region=region, **to_zarr_kwargs(store))
+            if LOGGING_STORE:
+                from zarr.storage import LoggingStore
+
+                store_ = LoggingStore(store)
+            else:
+                store_ = store
+            loaded.to_zarr(store_, group=group, region=region, **to_zarr_kwargs(store))
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
