@@ -354,12 +354,14 @@ def open_single_grib(
     **kwargs,
 ) -> xr.Dataset:
     """Both cfgrib and gribberish require downloading the whole file."""
-    ds = xr.open_dataset(
-        fsspec.open_local(f"simplecache::{uri}"),
-        engine="cfgrib",
-        backend_kwargs=kwargs,
-        chunks=chunks,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarning("ignore:In a future version of xarray:FutureWarning")
+        ds = xr.open_dataset(
+            fsspec.open_local(f"simplecache::{uri}"),
+            engine="cfgrib",
+            backend_kwargs=kwargs,
+            chunks=chunks,
+        )
     if drop_vars:
         ds = ds.drop_vars(drop_vars, errors="ignore")
     if expand_dims:

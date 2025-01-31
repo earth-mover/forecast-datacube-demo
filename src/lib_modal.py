@@ -11,7 +11,7 @@ MODAL_IMAGE = (
     .apt_install("curl")
     .pip_install(
         "arraylake>=0.13.3",
-        "icechunk >= 0.1.0a12",
+        "icechunk == 0.1.0",
         "certifi",
         "cfgrib",
         "dask",
@@ -22,6 +22,7 @@ MODAL_IMAGE = (
         "fastapi>=0.108",
         "eccodes==2.37",
         "pyproj",
+        "zarr==3.0.2",
     )
     .add_local_python_source("src")
 )

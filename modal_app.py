@@ -159,9 +159,11 @@ def update(ingest: Ingest) -> None:
         # fastpath
         instore = store._repo.to_xarray(group)
     elif isinstance(store, icechunk.IcechunkStore):
-        instore = xr.open_zarr(store, group=group, zarr_format=3, consolidated=False)
+        instore = xr.open_zarr(
+            store, group=group, zarr_format=3, consolidated=False, decode_timedelta=True
+        )
     else:
-        instore = xr.open_zarr(store, group=group, mode="r")
+        instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
 
     latest_available_date = model.latest_available(ingest)
     latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
@@ -229,7 +231,8 @@ def write_times(
     """
     group = ingest.zarr_group
     store = get_store(ingest.store)
-    ingest.zarr_store = store
+    if isinstance(store, icechunk.IcechunkStore):
+        session = store.session  # this is a new session :/
     model = models.get_model(ingest.model)
     assert store is not None
 
@@ -280,32 +283,34 @@ def write_times(
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError
 
-    # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
-    # to be greater than 1.
-    time_and_steps = itertools.chain(
-        *(
-            itertools.product(
-                (t,),
-                lib.batched(
-                    (step for step in model.get_steps(t) if step in step_hours),
-                    n=ingest.chunks[model.step_dim],
-                ),
+    with session.allow_pickling():  # FIXME: assumes icechunk
+        ingest.zarr_store = session.store
+        # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
+        # to be greater than 1.
+        time_and_steps = itertools.chain(
+            *(
+                itertools.product(
+                    (t,),
+                    lib.batched(
+                        (step for step in model.get_steps(t) if step in step_hours),
+                        n=ingest.chunks[model.step_dim],
+                    ),
+                )
+                for t in available_times
             )
-            for t in available_times
         )
-    )
 
-    logger.info("Starting write job for {}.".format(ingest.searches))
-    all_jobs = (
-        lib.Job(runtime=time, steps=steps, ingest=ingest)
-        for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
-    )
+        logger.info("Starting write job for {}.".format(ingest.searches))
+        all_jobs = (
+            lib.Job(runtime=time, steps=steps, ingest=ingest)
+            for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
+        )
 
-    # figure out total number of timestamps in store.
-    # This is an optimization to figure out the `region` in `write_herbie`
-    # minimizing number of roundtrips to the object store.
-    ntimes = zarr_group[model.runtime_dim].size
-    results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+        # figure out total number of timestamps in store.
+        # This is an optimization to figure out the `region` in `write_herbie`
+        # minimizing number of roundtrips to the object store.
+        ntimes = zarr_group[model.runtime_dim].size
+        results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
     logger.info("Finished write job for {}.".format(ingest))
     message = f"""
@@ -316,7 +321,6 @@ def write_times(
             """
     if isinstance(store, icechunk.IcechunkStore):
         logger.info("Merging changesets for icechunk")
-        session = store.session
         for _, next_store in results:
             session.merge(next_store.session)
         maybe_commit(session, message)
