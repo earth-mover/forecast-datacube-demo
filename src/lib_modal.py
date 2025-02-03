@@ -11,7 +11,7 @@ MODAL_IMAGE = (
     .apt_install("curl")
     .pip_install(
         "arraylake==0.14.0",
-        "icechunk==0.1.0",
+        "icechunk==0.1.1",
         "certifi",
         "cfgrib",
         "dask",
