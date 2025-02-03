@@ -382,7 +382,9 @@ def maybe_get_repo(name, client=None):
         return client.get_or_create_repo(name.removeprefix(ALPREFIX))
     elif name.startswith(ICEPREFIX):
         logger.info(f"Opening Icechunk store: {name!r}")
-        return client.get_or_create_repo(name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.V2)
+        return client.get_or_create_repo(
+            name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.Icechunk
+        )
     return name
 
 
