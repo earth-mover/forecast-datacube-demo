@@ -142,6 +142,9 @@ class ForecastModel(ABC):
                 ),
                 category=UserWarning,
             )
+            warnings.filterwarnings(
+                "ignore", "In a future version of xarray", category=FutureWarning
+            )
 
             dset = H.xarray(search)
         if isinstance(dset, list):
