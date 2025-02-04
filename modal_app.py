@@ -237,7 +237,9 @@ def write_times(
     assert store is not None
 
     available_times = model.get_available_times(since, till)
-    logger.info("Available times are {} for ingest {}".format(available_times, ingest))
+    logger.info(
+        "Available times ({}) are {} for {}".format(len(available_times), available_times, ingest)
+    )
 
     schema = model.create_schema(times=available_times, ingest=ingest)
     # Drop time-invariant variables to prevent conflicts
