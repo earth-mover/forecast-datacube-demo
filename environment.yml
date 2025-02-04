@@ -2,7 +2,7 @@ channels:
     - conda-forge
 
 dependencies:
-    - arraylake >=0.13.1
+    - arraylake >=0.14.0
     - cfgrib
     - dask
     - fsspec
