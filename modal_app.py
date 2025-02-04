@@ -166,7 +166,8 @@ def update(ingest: Ingest) -> None:
         instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
 
     latest_available_date = model.latest_available(ingest)
-    latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
+    time = instore[model.runtime_dim]
+    latest_in_store = pd.Timestamp(time[slice(-1, None)].data[0])
     if latest_in_store == latest_available_date:
         # already ingested
         logger.info(
@@ -177,8 +178,7 @@ def update(ingest: Ingest) -> None:
         return
 
     since: pd.Timestamp = pd.Timestamp(
-        datetime.combine(instore.time[-1].dt.date.item(), instore.time[-1].dt.time.item())
-        + model.update_freq
+        datetime.combine(time[-1].dt.date.item(), time[-1].dt.time.item()) + model.update_freq
     )
 
     # Our interval is left-closed [since, till) but latest_available_date must be included
@@ -354,19 +354,20 @@ def write_herbie(job, *, schema, ntimes=None):
         # (2) The timestamps we are writing are passed in `schema`
         # (3) we know the `step` values.
         # So we can infer `region` without making multiple trips to the Zarr store.
-        index = pd.to_timedelta(schema.indexes["step"], unit="hours")
-        step = pd.to_timedelta(ds.step.data, unit="ns")
+        index = pd.to_timedelta(schema.indexes[model.step_dim], unit="hours")
+        step_data = ds[model.step_dim].data
+        step = pd.to_timedelta(step_data, unit="ns")
         istep = index.get_indexer(step)
         if (istep == -1).any():
-            raise ValueError(f"Could not find all of step={ds.step.data!r} in {index!r}")
+            raise ValueError(f"Could not find all of step={step_data!r} in {index!r}")
         if not (np.diff(istep) == 1).all():
-            raise ValueError(f"step is not continuous={ds.step.data!r}")
+            raise ValueError(f"step is not continuous={step_data!r}")
 
         if ntimes is None:
             time_region = "auto"
         else:
-            index = schema.indexes["time"]
-            itime = index.get_indexer(ds.time.data).item()
+            index = schema.indexes[model.runtime_dim]
+            itime = index.get_indexer(ds[model.runtime_dim].data).item()
             if itime == -1:
                 raise ValueError(f"Could not find time={ds.time.data!r} in {index!r}")
             ntimes -= len(index)  # existing number of timestamps
@@ -374,8 +375,8 @@ def write_herbie(job, *, schema, ntimes=None):
         #############################
 
         region = {
-            "step": slice(istep[0], istep[-1] + 1),
-            "time": time_region,
+            model.step_dim: slice(istep[0], istep[-1] + 1),
+            model.runtime_dim: time_region,
         }
         region.update(
             {dim: slice(None) for dim in model.dim_order if dim not in region and dim in ds.dims}
