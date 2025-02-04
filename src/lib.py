@@ -143,7 +143,7 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
             warnings.filterwarnings(
-                "ignore", "In a future version of xarray", category=FutureWarning
+                "ignore", "In a future version of xarray.*", category=FutureWarning
             )
 
             dset = H.xarray(search)
@@ -358,7 +358,7 @@ def open_single_grib(
 ) -> xr.Dataset:
     """Both cfgrib and gribberish require downloading the whole file."""
     with warnings.catch_warnings():
-        warnings.filterwarning("ignore:In a future version of xarray:FutureWarning")
+        warnings.filterwarning("ignore:In a future version of xarray.*:FutureWarning")
         ds = xr.open_dataset(
             fsspec.open_local(f"simplecache::{uri}"),
             engine="cfgrib",
