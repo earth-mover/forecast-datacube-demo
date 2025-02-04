@@ -23,7 +23,7 @@ TimestampLike = Any
 
 # not great, but we aren't doing any computations here
 warnings.filterwarnings(
-    "ignore", category=UserWarning, message="The value of the smallest subnormal"
+    "ignore", category=UserWarning, message=".*The value of the smallest subnormal.*"
 )
 
 
@@ -143,7 +143,9 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
             warnings.filterwarnings(
-                "ignore", "In a future version of xarray.*", category=FutureWarning
+                "ignore",
+                message=".*decode_timedelta will default to False rather than None.*",
+                category=FutureWarning,
             )
 
             dset = H.xarray(search)
@@ -313,13 +315,20 @@ class ForecastModel(ABC):
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
         else:
             level_dim, levels = None, []
-        ds = xr.combine_nested(
-            [
-                xr.merge(cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}))
-                for path in sorted(paths)
-            ],
-            concat_dim="step",
-        )
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*decode_timedelta will default to False rather than None.*",
+                category=FutureWarning,
+            )
+            ds = xr.combine_nested(
+                [
+                    xr.merge(cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}))
+                    for path in sorted(paths)
+                ],
+                concat_dim="step",
+            )
         ds = ds.expand_dims("time").sortby("step")
         if levels:
             ds = ds.reindex({level_dim: levels})
@@ -358,7 +367,11 @@ def open_single_grib(
 ) -> xr.Dataset:
     """Both cfgrib and gribberish require downloading the whole file."""
     with warnings.catch_warnings():
-        warnings.filterwarning("ignore:In a future version of xarray.*:FutureWarning")
+        warnings.filterwarnings(
+            "ignore",
+            message=".*decode_timedelta will default to False rather than None.*",
+            category=FutureWarning,
+        )
         ds = xr.open_dataset(
             fsspec.open_local(f"simplecache::{uri}"),
             engine="cfgrib",
