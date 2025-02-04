@@ -7,7 +7,8 @@ import modal
 from modal import Image
 
 MODAL_IMAGE = (
-    Image.debian_slim(python_version="3.12")
+    # https://linear.app/earthmover/issue/EAR-1067/python-312-threading-issue-at-shutdown-time
+    Image.debian_slim(python_version="3.11")
     .apt_install("curl")
     .pip_install(
         "arraylake==0.14.0",
