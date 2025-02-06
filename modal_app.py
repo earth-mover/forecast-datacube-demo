@@ -401,7 +401,7 @@ def write_herbie(job, *, schema, ntimes=None):
                 store_ = LoggingStore(store)
             else:
                 store_ = store
-            with zarr.config.set({"async.concurrency": 1}):
+            with zarr.config.set({"async.concurrency": 1, "threading.max_workers": None}):
                 loaded.to_zarr(store_, group=group, region=region, **to_zarr_kwargs(store))
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e

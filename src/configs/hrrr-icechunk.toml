@@ -2,9 +2,10 @@
 model = "hrrr"
 product = "sfc"
 searches = [
-  "(?:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere",
+  "TMP:2 m above ground",
+  # "(?:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere",
 ]
-store = "icechunk://earthmover-demos/icebreakhrrr-v01"
+store = "icechunk://earthmover-demos/icebreakhrrr-v01-again"
 zarr_group =  "solar/"
-chunks = {x = 360, y = 120, time = 1, step = 19}
+chunks = {x = 360, y = 120, time = 1, step = 9}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}

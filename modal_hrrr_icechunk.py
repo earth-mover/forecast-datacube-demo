@@ -1,9 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import modal
 
 from modal_app import applib, driver
-from src.lib import ReadMode, WriteMode, utcnow
+from src.lib import ReadMode, WriteMode
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 
 app = modal.App("hrrr-icehunk-ingest")
@@ -37,7 +37,7 @@ def main(mode: str, toml_file: str, since: str, till: str | None = None):
 #     driver(mode=mode, toml_file_path=file)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("*/5 * * * *"), timeout=300)
+@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("*/30 * * * *"), timeout=300)
 def hrrr_verify_icechunk():
     driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr-icechunk.toml")
 
@@ -47,8 +47,9 @@ def hrrr_backfill_icechunk_latest():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
     file = "src/configs/hrrr-icechunk.toml"
     mode = WriteMode.BACKFILL
-    since = datetime(2025, 1, 14)
-    till = utcnow() - timedelta(days=1, hours=12)
+    since = datetime(2025, 2, 1)
+    # till = utcnow() - timedelta(days=1, hours=12)
+    till = datetime(2025, 2, 4, 0, 0, 0)
 
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 

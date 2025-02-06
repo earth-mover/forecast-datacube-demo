@@ -31,7 +31,9 @@ MODAL_IMAGE = (
         "eccodes==2.37",
         "pyproj",
         "zarr==3.0.2",
+        "ipdb",
     )
+    # .env({"PYTHONASYNCIODEBUG": "1"})
     .add_local_python_source("src")
 )
 
