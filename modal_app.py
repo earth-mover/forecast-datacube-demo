@@ -97,7 +97,7 @@ def verify(ingest: Ingest, *, nsteps=None):
     model = models.get_model(ingest.model)
     timedim, stepdim = model.runtime_dim, model.step_dim
 
-    runtime = pd.Timestamp(random.choice(inrepo[timedim].data))
+    runtime = pd.Timestamp(random.choice(inrepo[timedim].data.tolist()))
     step = model.get_steps(runtime)
     if nsteps is not None:
         step = sorted(random.sample(step, k=nsteps))
