@@ -9,17 +9,17 @@ from modal import Image
 MODAL_IMAGE = (
     # https://linear.app/earthmover/issue/EAR-1067/python-312-threading-issue-at-shutdown-time
     Image.debian_slim(python_version="3.11")
-    .apt_install("curl", "git")
-    .env({"PATH": "/root/.cargo/bin:$PATH"})
-    .run_commands(
-        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal",
-        ". ~/.cargo/env",
-        "echo $PATH && cargo -V",
-    )
+    .apt_install("curl")
+    # .apt_install("curl", "git")
+    # .env({"PATH": "/root/.cargo/bin:$PATH"})
+    # .run_commands(
+    #     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal",
+    #     ". ~/.cargo/env",
+    #     "echo $PATH && cargo -V",
+    # )
     .pip_install(
-        "arraylake==0.14.0",
-        # "icechunk==0.1.1",
-        "git+https://github.com/earth-mover/icechunk.git@push-nltsokxuurpz#subdirectory=icechunk-python/",
+        "arraylake==0.15.0",
+        "icechunk==0.2.1",
         "certifi",
         "cfgrib",
         "dask",
@@ -30,7 +30,7 @@ MODAL_IMAGE = (
         "fastapi>=0.108",
         "eccodes==2.37",
         "pyproj",
-        "zarr==3.0.2",
+        "zarr==3.0.4",
         "ipdb",
     )
     # .env({"PYTHONASYNCIODEBUG": "1"})
