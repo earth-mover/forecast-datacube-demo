@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Any
 
 import arraylake as al
-import icechunk
 import modal
 import numpy as np
 import pandas as pd
@@ -19,6 +18,14 @@ import zarr
 from src import lib, models
 from src.lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
 from src.lib_modal import MODAL_FUNCTION_KWARGS
+
+try:
+    import icechunk
+
+    has_icechunk = True
+except ImportError:
+    icechunk = None
+    has_icechunk = False
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -31,36 +38,32 @@ LOGGING_STORE: bool = True  # TODO: make a commandline flag / env var
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
-def maybe_commit(store, message) -> None:
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit(message)
-    elif isinstance(store, icechunk.Session):
+def maybe_commit(store, message: str) -> None:
+    if isinstance(store, icechunk.Session):
         store.commit(message)
-    elif isinstance(store, icechunk.IcechunkStore):
-        store.session.commit(message)
+    else:
+        store._repo.commit(message)
 
 
 #############
-def get_store(uri):
+def get_store(uri: str) -> tuple[Any, Any]:
     import os
 
-    import arraylake as al
     from arraylake import Client
 
     client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
     repo = lib.maybe_get_repo(uri, client=client)
     if isinstance(repo, al.repo.Repo):
-        return repo.store
-    elif isinstance(repo, icechunk.Repository):
-        # TODO: add imperative `pickle preserves read_only method`
-        #       a context manager won't work here
-        return repo.writable_session("main").store
+        return repo, repo.store
+    elif has_icechunk and isinstance(repo, icechunk.Repository):
+        session = repo.writable_session("main")
+        return session, session.store
     else:
-        return repo
+        return None, repo  # Zarr store URI
 
 
 def to_zarr_kwargs(store) -> dict[str, Any]:
-    if isinstance(store, icechunk.IcechunkStore):
+    if has_icechunk and isinstance(store, icechunk.IcechunkStore):
         return {"zarr_format": 3, "consolidated": False}
     return {}
 
@@ -70,7 +73,7 @@ def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = get_store(ingest.store)
+    committable, store = get_store(ingest.store)
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError(
@@ -82,7 +85,8 @@ def initialize(ingest) -> None:
     logger.debug(f"Writing schema to {group=!r} with extra kwargs: {to_zarr_kwargs(store)!r}")
     schema.to_zarr(store, group=group, mode="w", **to_zarr_kwargs(store))
 
-    maybe_commit(store, "Write schema for backfill ingest: {}".format(ingest))
+    if committable is not None:
+        maybe_commit(committable, "Write schema for backfill ingest: {}".format(ingest))
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
@@ -152,18 +156,15 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = get_store(ingest.store)
+    _, store = get_store(ingest.store)
     assert store is not None
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        # fastpath
-        instore = store._repo.to_xarray(group)
-    elif isinstance(store, icechunk.IcechunkStore):
+    if has_icechunk and isinstance(store, icechunk.IcechunkStore):
         instore = xr.open_zarr(
             store, group=group, zarr_format=3, consolidated=False, decode_timedelta=True
         )
     else:
-        instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
+        instore = xr.open_zarr(store, group=group, zarr_format=3, decode_timedelta=True)
 
     latest_available_date = model.latest_available(ingest)
     time = instore[model.runtime_dim]
@@ -230,9 +231,9 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = get_store(ingest.store)
-    if isinstance(store, icechunk.IcechunkStore):
-        session = store.session  # this is a new session :/
+    committable, store = get_store(ingest.store)
+    if has_icechunk and isinstance(store, icechunk.IcechunkStore):
+        session = committable
     model = models.get_model(ingest.model)
     assert store is not None
 
@@ -321,13 +322,13 @@ def write_times(
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-    if isinstance(store, icechunk.IcechunkStore):
+    if has_icechunk and isinstance(store, icechunk.IcechunkStore):
         logger.info("Merging changesets for icechunk")
         for _, next_store in results:
             session.merge(next_store.session)
         maybe_commit(session, message)
     else:
-        maybe_commit(store, message)
+        maybe_commit(committable, message)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
