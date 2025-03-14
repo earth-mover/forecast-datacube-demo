@@ -10,7 +10,7 @@ MODAL_IMAGE = (
     Image.debian_slim(python_version="3.12")
     .apt_install("curl")
     .pip_install(
-        "arraylake>=0.13",
+        "arraylake==0.15.1",
         "zarr==2.18.2",
         "certifi",
         "cfgrib",
