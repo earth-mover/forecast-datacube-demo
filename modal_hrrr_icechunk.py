@@ -2,9 +2,9 @@ from datetime import datetime, timedelta
 
 import modal
 
-from modal_app import applib, driver
 from src.lib import ReadMode, WriteMode
 from src.lib_modal import MODAL_FUNCTION_KWARGS
+from src.modal_app import applib, driver
 
 app = modal.App("hrrr-icehunk-ingest")
 app.include(applib)  # necessary

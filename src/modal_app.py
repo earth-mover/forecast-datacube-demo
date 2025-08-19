@@ -15,9 +15,9 @@ import pandas as pd
 import xarray as xr
 import zarr
 
-from src import lib, models
-from src.lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
-from src.lib_modal import MODAL_FUNCTION_KWARGS
+from . import lib, models
+from .lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
+from .lib_modal import MODAL_FUNCTION_KWARGS
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
