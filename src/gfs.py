@@ -180,6 +180,9 @@ class GFS(ForecastModel):
         shape = tuple(schema.sizes[dim] for dim in dim_order)
         chunks = tuple(chunksizes[dim] for dim in dim_order)
         for name in self.get_data_vars(search=search, renames=renames):
-            schema[name] = (dim_order, dask.array.ones(shape, chunks=chunks, dtype=np.float32))
+            schema[name] = (
+                dim_order,
+                dask.array.ones(shape, chunks=(-1,) * len(chunks), dtype=np.float32),
+            )
             schema[name].encoding["chunks"] = chunks
         return schema
