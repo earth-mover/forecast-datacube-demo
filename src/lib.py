@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 import cfgrib
 import fsspec
+import icechunk as ic
 import numcodecs
 import numpy as np
 import pandas as pd
@@ -71,7 +72,7 @@ class Ingest:
     searches: Sequence[str]
     chunks: dict[str, int]
     renames: dict[str, str] | None = None
-    zarr_store: Any = None
+    session: ic.Session | None = None
 
     def __iter__(self):
         for search in self.searches:
@@ -84,7 +85,7 @@ class Ingest:
                 zarr_group=self.zarr_group,
                 chunks=self.chunks,
                 renames=self.renames,
-                zarr_store=self.zarr_store,
+                session=self.session,
             )
 
 
@@ -385,7 +386,7 @@ def open_single_grib(
     return ds
 
 
-def maybe_get_repo(name, client=None):
+def get_repo(name: str, client=None) -> ic.Repository:
     import arraylake as al
 
     if client is None:
@@ -401,14 +402,8 @@ def maybe_get_repo(name, client=None):
         return client.get_or_create_repo(
             name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.Icechunk
         )
-    return name
-
-
-def get_repo(name):
-    import arraylake as al
-
-    client = al.Client()
-    return client.get_or_create_repo(f"earthmover-demos/{name}")
+    else:
+        raise NotImplementedError
 
 
 def create_repo(name: str):

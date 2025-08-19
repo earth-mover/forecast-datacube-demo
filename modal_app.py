@@ -8,8 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
-import arraylake as al
-import icechunk
+import icechunk as ic
 import modal
 import numpy as np
 import pandas as pd
@@ -31,38 +30,14 @@ LOGGING_STORE: bool = True  # TODO: make a commandline flag / env var
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
-def maybe_commit(store, message) -> None:
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit(message)
-    elif isinstance(store, icechunk.Session):
-        store.commit(message)
-    elif isinstance(store, icechunk.IcechunkStore):
-        store.session.commit(message)
-
-
-#############
-def get_store(uri):
+def get_session(uri: str) -> ic.Session:
     import os
 
-    import arraylake as al
     from arraylake import Client
 
     client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
-    repo = lib.maybe_get_repo(uri, client=client)
-    if isinstance(repo, al.repo.Repo):
-        return repo.store
-    elif isinstance(repo, icechunk.Repository):
-        # TODO: add imperative `pickle preserves read_only method`
-        #       a context manager won't work here
-        return repo.writable_session("main").store
-    else:
-        return repo
-
-
-def to_zarr_kwargs(store) -> dict[str, Any]:
-    if isinstance(store, icechunk.IcechunkStore):
-        return {"zarr_format": 3, "consolidated": False}
-    return {}
+    repo = lib.get_repo(uri, client=client)
+    return repo.writable_session("main")
 
 
 def initialize(ingest) -> None:
@@ -70,7 +45,7 @@ def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = get_store(ingest.store)
+    session = get_session(ingest.store)
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError(
@@ -79,10 +54,9 @@ def initialize(ingest) -> None:
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
-    logger.debug(f"Writing schema to {group=!r} with extra kwargs: {to_zarr_kwargs(store)!r}")
-    schema.to_zarr(store, group=group, mode="w", **to_zarr_kwargs(store))
-
-    maybe_commit(store, "Write schema for backfill ingest: {}".format(ingest))
+    logger.debug(f"Writing schema to {group=!r}")
+    schema.to_zarr(session.store, group=group, mode="w", zarr_format=3, consolidated=False)
+    session.commit("Write schema for backfill ingest: {}".format(ingest))
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
@@ -90,9 +64,9 @@ def verify(ingest: Ingest, *, nsteps=None):
     import dask
 
     tic = time.time()
-    store = get_store(ingest.store)
+    session = get_session(ingest.store)
     inrepo = xr.open_dataset(
-        store, group=ingest.zarr_group, chunks=None, engine="zarr", consolidated=False
+        session.store, group=ingest.zarr_group, chunks=None, engine="zarr", consolidated=False
     )
     model = models.get_model(ingest.model)
     timedim, stepdim = model.runtime_dim, model.step_dim
@@ -152,18 +126,12 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = get_store(ingest.store)
-    assert store is not None
+    session = get_session(ingest.store)
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        # fastpath
-        instore = store._repo.to_xarray(group)
-    elif isinstance(store, icechunk.IcechunkStore):
-        instore = xr.open_zarr(
-            store, group=group, zarr_format=3, consolidated=False, decode_timedelta=True
-        )
-    else:
-        instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
+    instore = xr.open_zarr(
+        session.store, group=group, zarr_format=3, consolidated=False, decode_timedelta=True
+    )
+    # instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
 
     latest_available_date = model.latest_available(ingest)
     time = instore[model.runtime_dim]
@@ -230,11 +198,8 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = get_store(ingest.store)
-    if isinstance(store, icechunk.IcechunkStore):
-        session = store.session  # this is a new session :/
+    session = get_session(ingest.store)
     model = models.get_model(ingest.model)
-    assert store is not None
 
     available_times = model.get_available_times(since, till)
     logger.info(
@@ -259,26 +224,14 @@ def write_times(
         for name, var in dset.data_vars.items():
             schema[name].attrs = var.attrs
 
-    zarr_group = zarr.open_group(store)[group]
+    zarr_group = zarr.open_group(session.store)[group]
 
     # Workaround for Xarray overwriting group attrs.
     # https://github.com/pydata/xarray/issues/8755
     schema.attrs.update(zarr_group.attrs.asdict())
 
     logger.info("Writing schema for initialize: {}".format(schema))
-    # TODO: remove when zarr v3 supports write_empty_chunks
-    more_kwargs = to_zarr_kwargs(store)
-    if more_kwargs.get("zarr_format") == 3:
-        for var in schema._variables.values():
-            var.encoding.pop("write_empty_chunks", None)
-            var.encoding.pop("compressor", None)
-            var.encoding.pop("filters", None)
-            # if codecs := var.encoding.pop("filters", None):
-            #     comp = var.encoding.pop("compressor", None)
-            #     var.encoding["codecs"] = codecs + (comp,) if comp is not None else ()
-    schema.drop_vars(to_drop).to_zarr(
-        store, group=group, **write_kwargs, compute=False, **more_kwargs
-    )
+    schema.drop_vars(to_drop).to_zarr(session.store, group=group, **write_kwargs, compute=False)
     logger.info("Finished writing schema for initialize: {}".format(schema))
 
     step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
@@ -286,8 +239,6 @@ def write_times(
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError
 
-    # with session.allow_pickling():  # FIXME: assumes icechunk
-    #     ingest.zarr_store = session.store
     # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
     # to be greater than 1.
     time_and_steps = itertools.chain(
@@ -304,6 +255,7 @@ def write_times(
     )
 
     logger.info("Starting write job for {}.".format(ingest.searches))
+    ingest.session = session.fork()
     all_jobs = (
         lib.Job(runtime=time, steps=steps, ingest=ingest)
         for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
@@ -322,13 +274,10 @@ def write_times(
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-    if isinstance(store, icechunk.IcechunkStore):
-        logger.info("Merging changesets for icechunk")
-        for _, next_store in results:
-            session.merge(next_store.session)
-        maybe_commit(session, message)
-    else:
-        maybe_commit(store, message)
+    logger.info("Merging changesets for icechunk")
+    for _, next_store in results:
+        session.merge(next_store.session)
+    session.commit(session, message)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
@@ -403,7 +352,9 @@ def write_herbie(job, *, schema, ntimes=None):
             else:
                 store_ = store
             with zarr.config.set({"async.concurrency": 1, "threading.max_workers": None}):
-                loaded.to_zarr(store_, group=group, region=region, **to_zarr_kwargs(store))
+                loaded.to_zarr(
+                    store_, group=group, region=region, zarr_format=3, consolidated=False
+                )
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
@@ -435,7 +386,7 @@ def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=
         ingests = ingest_jobs.values()
         for i in ingests:
             # create the store if needed
-            lib.maybe_get_repo(i.store)
+            lib.get_repo(i.store)
 
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated
