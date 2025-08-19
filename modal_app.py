@@ -184,7 +184,7 @@ def update(ingest: Ingest) -> None:
 
     # Our interval is left-closed [since, till) but latest_available_date must be included
     # So adjust `till`
-    till = latest_available_date + model.update_freq
+    till = latest_available_date + model.update_freq - pd.Timedelta(days=20)
     logger.info("Latest data not complete but there is data to ingest. ")
 
     logger.info(
@@ -280,40 +280,41 @@ def write_times(
     schema.drop_vars(to_drop).to_zarr(
         store, group=group, **write_kwargs, compute=False, **more_kwargs
     )
+    logger.info("Finished writing schema for initialize: {}".format(schema))
 
     step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError
 
-    with session.allow_pickling():  # FIXME: assumes icechunk
-        ingest.zarr_store = session.store
-        # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
-        # to be greater than 1.
-        time_and_steps = itertools.chain(
-            *(
-                itertools.product(
-                    (t,),
-                    lib.batched(
-                        (step for step in model.get_steps(t) if step in step_hours),
-                        n=ingest.chunks[model.step_dim],
-                    ),
-                )
-                for t in available_times
+    # with session.allow_pickling():  # FIXME: assumes icechunk
+    #     ingest.zarr_store = session.store
+    # TODO: This is the place to update if we wanted chunksize along `model.runtime_dim`
+    # to be greater than 1.
+    time_and_steps = itertools.chain(
+        *(
+            itertools.product(
+                (t,),
+                lib.batched(
+                    (step for step in model.get_steps(t) if step in step_hours),
+                    n=ingest.chunks[model.step_dim],
+                ),
             )
+            for t in available_times
         )
+    )
 
-        logger.info("Starting write job for {}.".format(ingest.searches))
-        all_jobs = (
-            lib.Job(runtime=time, steps=steps, ingest=ingest)
-            for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
-        )
+    logger.info("Starting write job for {}.".format(ingest.searches))
+    all_jobs = (
+        lib.Job(runtime=time, steps=steps, ingest=ingest)
+        for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
+    )
 
-        # figure out total number of timestamps in store.
-        # This is an optimization to figure out the `region` in `write_herbie`
-        # minimizing number of roundtrips to the object store.
-        ntimes = zarr_group[model.runtime_dim].size
-        results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+    # figure out total number of timestamps in store.
+    # This is an optimization to figure out the `region` in `write_herbie`
+    # minimizing number of roundtrips to the object store.
+    ntimes = zarr_group[model.runtime_dim].size
+    results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
     logger.info("Finished write job for {}.".format(ingest))
     message = f"""

@@ -42,7 +42,11 @@ def hrrr_backfill():
     driver(mode=mode, toml_file_path=file, since=since, till=till)
 
 
-@app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("57 * * * *"), timeout=1200)
+@app.function(
+    **MODAL_FUNCTION_KWARGS,
+    # schedule=modal.Cron("57 * * * *"),
+    timeout=3600 * 3,
+)
 def hrrr_update_solar():
     """
     *Deploy* this :update" function wtih `modal deploy modal_hrrr.py --name hrrr_update_solar`.
