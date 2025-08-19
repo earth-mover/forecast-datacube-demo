@@ -1,4 +1,3 @@
-import asyncio
 import contextlib
 import itertools
 import logging
@@ -15,8 +14,6 @@ from typing import Any, Literal
 import cfgrib
 import fsspec
 import icechunk as ic
-import numcodecs.zarr3
-import numpy as np
 import pandas as pd
 import tomllib
 import xarray as xr
@@ -418,33 +415,34 @@ def create_repo(name: str):
 
 
 def optimize_coord_encoding(values, dx, is_regular=False):
-    if is_regular:
-        dx_all = np.diff(values)
-        np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
+    return {}
+    # if is_regular:
+    #     dx_all = np.diff(values)
+    #     np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
 
-    offset_codec = numcodecs.zarr3.FixedScaleOffset(
-        offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
-    )
-    delta_codec = numcodecs.zarr3.Delta(dtype="i8", astype="i2")
-    compressor = numcodecs.zarr3.Blosc(cname="zstd")
+    # offset_codec = numcodecs.zarr3.FixedScaleOffset(
+    #     offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
+    # )
+    # delta_codec = numcodecs.zarr3.Delta(dtype="i8", astype="i2")
+    # compressor = numcodecs.zarr3.Blosc(cname="zstd")
 
-    enc0 = asyncio.run(offset_codec.encode(values))
-    print(enc0)
-    if is_regular:
-        # everything should be offset by 1 at this point
-        np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
-    enc1 = asyncio.run(delta_codec.encode(enc0))
-    # now we should be able to compress the shit out of this
-    enc2 = asyncio.run(compressor.encode(enc1))
-    decoded = asyncio.run(
-        offset_codec.decode(asyncio.run(delta_codec.decode(asyncio.run(compressor.decode(enc2)))))
-    )
+    # enc0 = asyncio.run(offset_codec.encode(values))
+    # print(enc0)
+    # if is_regular:
+    #     # everything should be offset by 1 at this point
+    #     np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
+    # enc1 = asyncio.run(delta_codec.encode(enc0))
+    # # now we should be able to compress the shit out of this
+    # enc2 = asyncio.run(compressor.encode(enc1))
+    # decoded = asyncio.run(
+    #     offset_codec.decode(asyncio.run(delta_codec.decode(asyncio.run(compressor.decode(enc2)))))
+    # )
 
-    # will produce numerical precision differences
-    np.testing.assert_equal(values, decoded)
-    # np.testing.assert_allclose(values, decoded)
+    # # will produce numerical precision differences
+    # np.testing.assert_equal(values, decoded)
+    # # np.testing.assert_allclose(values, decoded)
 
-    return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
+    # return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
 
 
 def create_time_encoding(freq: timedelta) -> dict:
