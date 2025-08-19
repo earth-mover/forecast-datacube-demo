@@ -28,7 +28,7 @@ def hrrr_backfill():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
     file = "src/configs/hrrr-icechunk.toml"
     mode = WriteMode.BACKFILL
-    since = datetime(2025, 2, 12)
+    since = datetime(2025, 8, 12)
     till = datetime.now() - timedelta(days=1, hours=12)
     # till = datetime(2025, 2, 4, 0, 0, 0)
 
