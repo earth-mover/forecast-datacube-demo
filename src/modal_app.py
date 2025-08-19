@@ -27,7 +27,7 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
-LOGGING_STORE: bool = True  # TODO: make a commandline flag / env var
+LOGGING_STORE: bool = False  # TODO: make a commandline flag / env var
 
 applib = modal.App("earthmover-forecast-ingest-lib")
 

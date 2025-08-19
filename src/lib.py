@@ -399,18 +399,8 @@ def get_repo(name: str, client=None) -> ic.Repository:
     if client is None:
         client = al.Client()
 
-    ALPREFIX = "arraylake://"
-    ICEPREFIX = "icechunk://"
-    if name.startswith(ALPREFIX):
-        logger.info(f"Opening Arraylake store: {name!r}")
-        return client.get_or_create_repo(name.removeprefix(ALPREFIX))
-    elif name.startswith(ICEPREFIX):
-        logger.info(f"Opening Icechunk store: {name!r}")
-        return client.get_or_create_repo(
-            name.removeprefix(ICEPREFIX), kind=al.types.RepoKind.Icechunk
-        )
-    else:
-        raise NotImplementedError
+    logger.info(f"Opening Arraylake store: {name!r}")
+    return client.get_or_create_repo(name.removeprefix("arraylake://"))
 
 
 def create_repo(name: str):
