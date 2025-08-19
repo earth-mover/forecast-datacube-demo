@@ -1,3 +1,4 @@
+import asyncio
 import contextlib
 import itertools
 import logging
@@ -424,17 +425,20 @@ def optimize_coord_encoding(values, dx, is_regular=False):
     offset_codec = numcodecs.zarr3.FixedScaleOffset(
         offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
     )
-    delta_codec = numcodecs.zarr3.Delta("i8", "i2")
+    delta_codec = numcodecs.zarr3.Delta(dtype="i8", astype="i2")
     compressor = numcodecs.zarr3.Blosc(cname="zstd")
 
-    enc0 = offset_codec.encode(values)
+    enc0 = asyncio.run(offset_codec.encode(values))
+    print(enc0)
     if is_regular:
         # everything should be offset by 1 at this point
         np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
-    enc1 = delta_codec.encode(enc0)
+    enc1 = asyncio.run(delta_codec.encode(enc0))
     # now we should be able to compress the shit out of this
-    enc2 = compressor.encode(enc1)
-    decoded = offset_codec.decode(delta_codec.decode(compressor.decode(enc2)))
+    enc2 = asyncio.run(compressor.encode(enc1))
+    decoded = asyncio.run(
+        offset_codec.decode(asyncio.run(delta_codec.decode(asyncio.run(compressor.decode(enc2)))))
+    )
 
     # will produce numerical precision differences
     np.testing.assert_equal(values, decoded)
