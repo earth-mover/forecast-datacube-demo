@@ -18,8 +18,8 @@ MODAL_IMAGE = (
     #     "echo $PATH && cargo -V",
     # )
     .pip_install(
-        "arraylake==0.15.0",
-        "icechunk==0.2.1",
+        "arraylake",
+        "icechunk>=1",
         "certifi",
         "cfgrib",
         "dask",
@@ -30,7 +30,7 @@ MODAL_IMAGE = (
         "fastapi>=0.108",
         "eccodes==2.37",
         "pyproj",
-        "zarr==3.0.4",
+        "zarr>=3",
         "ipdb",
     )
     # .env({"PYTHONASYNCIODEBUG": "1"})
