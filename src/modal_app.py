@@ -55,7 +55,9 @@ def initialize(ingest) -> None:
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
     logger.debug(f"Writing schema to {group=!r}")
-    schema.to_zarr(session.store, group=group, mode="w", zarr_format=3, consolidated=False)
+    schema.to_zarr(
+        session.store, group=group, mode="w", zarr_format=3, consolidated=False, compute=False
+    )
     session.commit("Write schema for backfill ingest: {}".format(ingest))
 
 
