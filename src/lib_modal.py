@@ -8,7 +8,7 @@ from modal import Image
 
 MODAL_IMAGE = (
     # https://linear.app/earthmover/issue/EAR-1067/python-312-threading-issue-at-shutdown-time
-    Image.debian_slim(python_version="3.11")
+    Image.debian_slim(python_version="3.12")
     .apt_install("curl")
     # .apt_install("curl", "git")
     # .env({"PATH": "/root/.cargo/bin:$PATH"})
@@ -35,6 +35,7 @@ MODAL_IMAGE = (
     )
     # .env({"PYTHONASYNCIODEBUG": "1"})
     .add_local_python_source("src")
+    .add_local_dir("src/configs", remote_path="/root/src/configs")
 )
 
 
@@ -47,6 +48,6 @@ MODAL_FUNCTION_KWARGS: ModalKwargs = dict(
     image=MODAL_IMAGE,
     secrets=[
         modal.Secret.from_name("ryan-aws-secret"),
-        modal.Secret.from_name("deepak-arraylake-demos-token"),
+        modal.Secret.from_name("deepak-earthmover-demos-token"),
     ],
 )
