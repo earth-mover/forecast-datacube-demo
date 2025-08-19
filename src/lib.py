@@ -14,7 +14,7 @@ from typing import Any, Literal
 import cfgrib
 import fsspec
 import icechunk as ic
-import numcodecs
+import numcodecs.zarr3
 import numpy as np
 import pandas as pd
 import tomllib
@@ -421,11 +421,11 @@ def optimize_coord_encoding(values, dx, is_regular=False):
         dx_all = np.diff(values)
         np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
 
-    offset_codec = numcodecs.FixedScaleOffset(
+    offset_codec = numcodecs.zarr3.FixedScaleOffset(
         offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
     )
-    delta_codec = numcodecs.Delta("i8", "i2")
-    compressor = numcodecs.Blosc(cname="zstd")
+    delta_codec = numcodecs.zarr3.Delta("i8", "i2")
+    compressor = numcodecs.zarr3.Blosc(cname="zstd")
 
     enc0 = offset_codec.encode(values)
     if is_regular:
