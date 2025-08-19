@@ -1,8 +1,10 @@
 import itertools
 import logging
+import os
 import random
 import subprocess
 import time
+import uuid
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -31,8 +33,6 @@ applib = modal.App("earthmover-forecast-ingest-lib")
 
 
 def get_session(uri: str) -> ic.Session:
-    import os
-
     from arraylake import Client
 
     client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
@@ -200,7 +200,11 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    session = get_session(ingest.store)
+    repo = lib.get_repo(ingest.store)
+    base = repo.lookup_branch("main")
+    branch = str(uuid.uuid4())
+    repo.create_branch(branch, snapshot_id=base)
+    session = repo.writable_session(branch)
     model = models.get_model(ingest.model)
 
     available_times = model.get_available_times(since, till)
@@ -257,6 +261,9 @@ def write_times(
     )
 
     logger.info("Starting write job for {}.".format(ingest.searches))
+
+    session.commit("finished initializing for update")
+    session = repo.writable_session(branch)
     ingest.session = session.fork()
     all_jobs = (
         lib.Job(runtime=time, steps=steps, ingest=ingest)
@@ -277,13 +284,15 @@ def write_times(
             zarr_group: {ingest.zarr_group}
             """
     logger.info("Merging changesets for icechunk")
-    for _, next_store in results:
-        session.merge(next_store.session)
-    session.commit(session, message)
+    for _, fork_session in results:
+        session.merge(fork_session)
+    new_snap = session.commit(message)
+    repo.reset_branch("main", snapshot_id=new_snap)
+    repo.delete_branch(branch)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
-def write_herbie(job, *, schema, ntimes=None):
+def write_herbie(job, *, schema, ntimes=None) -> tuple[np.ndarray, ic.Session]:
     """Actual writes data to disk."""
     import dask
 
@@ -294,7 +303,8 @@ def write_herbie(job, *, schema, ntimes=None):
 
     ingest = job.ingest
     model = models.get_model(ingest.model)
-    store = ingest.zarr_store
+    assert ingest.session is not None
+    session = ingest.session
     group = ingest.zarr_group
 
     logger.debug("Processing job {}".format(job))
@@ -350,13 +360,11 @@ def write_herbie(job, *, schema, ntimes=None):
             if LOGGING_STORE:
                 from zarr.storage import LoggingStore
 
-                store_ = LoggingStore(store)
+                store_ = LoggingStore(session.store)
             else:
-                store_ = store
-            with zarr.config.set({"async.concurrency": 1, "threading.max_workers": None}):
-                loaded.to_zarr(
-                    store_, group=group, region=region, zarr_format=3, consolidated=False
-                )
+                store_ = session.store
+            # with zarr.config.set({"async.concurrency": 1, "threading.max_workers": None}):
+            loaded.to_zarr(store_, group=group, region=region, zarr_format=3, consolidated=False)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
@@ -370,7 +378,7 @@ def write_herbie(job, *, schema, ntimes=None):
     logger.info(
         "      Finished writing job {}. Took {} seconds".format(job.summarize(), time.time() - tic)
     )
-    return (ds.step.data, store)
+    return (ds.step.data, session)
 
 
 def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=None) -> None:
