@@ -321,11 +321,17 @@ class ForecastModel(ABC):
                 message=".*decode_timedelta will default to False rather than None.*",
                 category=FutureWarning,
             )
+            warnings.filterwarnings(
+                "ignore",
+                message=".*the default value for compat will change from.*",
+                category=FutureWarning,
+            )
             ds = xr.combine_nested(
                 [
                     xr.merge(
                         cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}),
                         join="exact",
+                        compat="override",
                     )
                     for path in sorted(paths)
                 ],
