@@ -149,7 +149,7 @@ class ForecastModel(ABC):
 
             dset = H.xarray(search)
         if isinstance(dset, list):
-            dset = xr.merge(dset)
+            dset = xr.merge(dset, compat="override", join="exact")
         return dset
 
     def get_data_vars(self, search: str, renames: dict[str, str] | None = None) -> Iterable[str]:
@@ -323,7 +323,10 @@ class ForecastModel(ABC):
             )
             ds = xr.combine_nested(
                 [
-                    xr.merge(cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}))
+                    xr.merge(
+                        cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}),
+                        join="exact",
+                    )
                     for path in sorted(paths)
                 ],
                 concat_dim="step",
