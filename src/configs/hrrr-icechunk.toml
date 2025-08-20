@@ -4,7 +4,7 @@ product = "sfc"
 searches = [
   "(?:TMP|RH):2 m above ground|(?:GUST|DSWRF|PRATE):surface|TCDC:entire atmosphere",
 ]
-store = "arraylake://earthmover-demos/icebreakhrrr"
+store = "arraylake://earthmover-integration/icebreakhrrr-s3"
 zarr_group =  "solar/"
 chunks = {x = 360, y = 120, time = 1, step = 19}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}
