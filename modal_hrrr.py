@@ -36,7 +36,7 @@ def hrrr_backfill():
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=20 * 60, schedule=modal.Cron("57 * * * *"))
-def hrrr_update_solar_latest():
+def hrrr_update_solar():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
     file = "src/configs/hrrr-icechunk.toml"
     mode = WriteMode.UPDATE

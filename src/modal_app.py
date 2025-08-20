@@ -153,7 +153,7 @@ def update(ingest: Ingest) -> None:
 
     # Our interval is left-closed [since, till) but latest_available_date must be included
     # So adjust `till`
-    till = latest_available_date + model.update_freq - pd.Timedelta(days=20)
+    till = latest_available_date + model.update_freq
     logger.info("Latest data not complete but there is data to ingest. ")
 
     logger.info(
