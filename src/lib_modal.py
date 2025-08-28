@@ -17,7 +17,7 @@ MODAL_IMAGE = (
     #     ". ~/.cargo/env",
     #     "echo $PATH && cargo -V",
     # )
-    .pip_install_from_pyproject("pyproject.toml")
+    .uv_sync()
     # .env({"PYTHONASYNCIODEBUG": "1"})
     .add_local_python_source("src")
     .add_local_dir("src/configs", remote_path="/root/src/configs")
