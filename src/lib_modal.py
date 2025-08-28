@@ -17,22 +17,7 @@ MODAL_IMAGE = (
     #     ". ~/.cargo/env",
     #     "echo $PATH && cargo -V",
     # )
-    .pip_install(
-        "arraylake",
-        "icechunk>=1",
-        "certifi",
-        "cfgrib",
-        "dask",
-        "fsspec",
-        "herbie-data",
-        "s3fs",
-        "xarray",
-        "fastapi>=0.108",
-        "eccodes==2.37",
-        "pyproj",
-        "zarr>=3",
-        "ipdb",
-    )
+    .pip_install_from_pyproject(".")
     # .env({"PYTHONASYNCIODEBUG": "1"})
     .add_local_python_source("src")
     .add_local_dir("src/configs", remote_path="/root/src/configs")
