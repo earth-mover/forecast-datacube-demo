@@ -1,4 +1,4 @@
-# Analysis-Ready Weather Forecast Data Cubes in Zarr
+# Analysis-Ready Weather Forecast Data Cubes in Icechunk
 
 This is a model for how to build a data pipeline that ingests and transforms weather forecast data distributed as GRIB files to an analysis-ready cloud-optimized Zarr data cube using a serverless pipeline.
 
