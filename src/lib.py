@@ -323,6 +323,11 @@ class ForecastModel(ABC):
             )
             warnings.filterwarnings(
                 "ignore",
+                message=".*In a future version*",
+                category=FutureWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
                 message=".*the default value for compat will change from.*",
                 category=FutureWarning,
             )
