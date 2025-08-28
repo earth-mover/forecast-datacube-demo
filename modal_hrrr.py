@@ -6,7 +6,7 @@ from src.lib import ReadMode, WriteMode
 from src.lib_modal import MODAL_FUNCTION_KWARGS
 from src.modal_app import applib, driver
 
-app = modal.App("hrrr-icehunk-ingest")
+app = modal.App("hrrr-ingest")
 app.include(applib)  # necessary
 
 
@@ -20,13 +20,13 @@ def main(mode: str, toml_file: str, since: str, till: str | None = None):
 
 @app.function(**MODAL_FUNCTION_KWARGS, schedule=modal.Cron("*/30 * * * *"), timeout=300)
 def hrrr_verify():
-    driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr-icechunk.toml")
+    driver(mode=ReadMode.VERIFY, toml_file_path="src/configs/hrrr.toml")
 
 
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=3600 * 3)
 def hrrr_backfill():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
-    file = "src/configs/hrrr-icechunk.toml"
+    file = "src/configs/hrrr.toml"
     mode = WriteMode.BACKFILL
     since = datetime(2025, 8, 12)
     till = datetime.now() - timedelta(days=1, hours=12)
@@ -38,6 +38,6 @@ def hrrr_backfill():
 @app.function(**MODAL_FUNCTION_KWARGS, timeout=20 * 60, schedule=modal.Cron("57 * * * *"))
 def hrrr_update_solar():
     """Run this "backfill" function wtih `modal run modal_hrrr.py::hrrr_backfill`."""
-    file = "src/configs/hrrr-icechunk.toml"
+    file = "src/configs/hrrr.toml"
     mode = WriteMode.UPDATE
     driver(mode=mode, toml_file_path=file)
