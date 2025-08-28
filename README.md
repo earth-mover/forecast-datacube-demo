@@ -15,6 +15,13 @@ The code runs in one of two modes:
 Modal Cron Jobs cannot take arguments, so any configuration must be shipped up when running `modal deploy`. To configure the data pipeline
 set up a TOML file in `src/configs/`. The location is arbitrary, but it's nice to keep it all in one place.
 
+## Approach
+
+1. All writes are isolated to a new temporary branch. 
+1. Once all writes succeed, a snapshot is made to that branch.
+1. Then `main` is reset to this new snapshot.
+1. Finally the temporary branch is deleted.
+
 ## Execution
 ``` sh
 # Drive from the command line.
