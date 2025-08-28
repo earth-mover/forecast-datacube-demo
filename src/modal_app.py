@@ -67,6 +67,7 @@ def initialize(ingest) -> None:
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
 def verify(ingest: Ingest, *, nsteps=None):
+    """Reads `steps` and verifies the data against the original GRIB files."""
     import dask
 
     tic = time.time()
@@ -232,7 +233,12 @@ def write_times(
                 f"Loaded data has data_vars={tuple(dset.data_vars)!r}"
             )
         for name, var in dset.data_vars.items():
-            schema[name].attrs = var.attrs
+            # take attrs from data
+            attrs = var.attrs
+            # overwrite with any set in schema
+            attrs.update(schema[name].attrs)
+            # save that
+            schema[name].attrs = attrs
 
     zarr_group = zarr.open_group(session.store)[group]
 
