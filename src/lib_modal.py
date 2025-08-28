@@ -32,7 +32,7 @@ class ModalKwargs(TypedDict):
 MODAL_FUNCTION_KWARGS: ModalKwargs = dict(
     image=MODAL_IMAGE,
     secrets=[
-        modal.Secret.from_name("ryan-aws-secret"),
+        modal.Secret.from_name("deepak-earthmover-public-token"),
         modal.Secret.from_name("deepak-earthmover-integration-token"),
     ],
 )

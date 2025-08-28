@@ -37,7 +37,9 @@ applib = modal.App("earthmover-forecast-ingest-lib")
 def get_session(uri: str) -> ic.Session:
     from arraylake import Client
 
-    client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
+    token_name = lib.uri_to_token(uri)
+    logger.info(f"Using token {token_name=!r}")
+    client = Client(token=os.environ[token_name])
     repo = lib.get_repo(uri, client=client)
     return repo.writable_session("main")
 

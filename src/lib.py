@@ -1,6 +1,6 @@
-import contextlib
 import itertools
 import logging
+import os
 import random
 import string
 import tomllib
@@ -24,6 +24,32 @@ TimestampLike = Any
 warnings.filterwarnings(
     "ignore", category=UserWarning, message=".*The value of the smallest subnormal.*"
 )
+
+
+def uri_to_token(reponame: str) -> str:
+    """
+    Convert arraylake://path/name format to ARRAYLAKE_TOKEN_PATH format
+
+    Args:
+        reponame (str): String in format 'arraylake://path/name'
+
+    Returns:
+        str: Converted string in format 'ARRAYLAKE_TOKEN_PATH'
+    """
+    # Remove the 'arraylake://' prefix
+    if not reponame.startswith("arraylake://"):
+        raise ValueError("Input string must start with 'arraylake://'")
+
+    path_part = reponame.removeprefix("arraylake://")
+
+    # Split by '/' and take only the first part (before any additional slashes)
+    path_components = path_part.split("/")
+    main_path = path_components[0]
+
+    # Replace hyphens with underscores and convert to uppercase
+    result = f"ARRAYLAKE_TOKEN_{main_path.replace('-', '_').upper()}"
+
+    return result
 
 
 def utcnow():
@@ -402,20 +428,10 @@ def get_repo(name: str, client=None) -> ic.Repository:
     import arraylake as al
 
     if client is None:
-        client = al.Client()
+        client = al.Client(token=os.environ[uri_to_token(name)])
 
     logger.info(f"Opening Arraylake store: {name!r}")
     return client.get_or_create_repo(name.removeprefix("arraylake://"))
-
-
-def create_repo(name: str):
-    import arraylake as al
-
-    client = al.Client()
-    with contextlib.suppress(ValueError):
-        client.delete_repo(f"earthmover-demos/{name}", imsure=True, imreallysure=True)
-
-    return client.create_repo(f"earthmover-demos/{name}")
 
 
 def optimize_coord_encoding(values, dx, is_regular=False):
