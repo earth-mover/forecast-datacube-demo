@@ -274,21 +274,27 @@ def write_times(
     # This is an optimization to figure out the `region` in `write_herbie`
     # minimizing number of roundtrips to the object store.
     ntimes = zarr_group[model.runtime_dim].size
-    results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+    try:
+        results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
-    logger.info("Finished write job for {}.".format(ingest))
-    message = f"""
+        logger.info("Finished write job for {}.".format(ingest))
+        message = f"""
             Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
             Data: {ingest.model}, {ingest.product} \n
             Searches: {ingest.searches}.\n
             zarr_group: {ingest.zarr_group}
             """
-    logger.info("Merging changesets for icechunk")
-    for _, fork_session in results:
-        session.merge(fork_session)
-    new_snap = session.commit(message)
-    repo.reset_branch("main", snapshot_id=new_snap)
-    repo.delete_branch(branch)
+        logger.info("Merging changesets for icechunk")
+        for _, fork_session in results:
+            session.merge(fork_session)
+
+        new_snap = session.commit(message)
+        repo.reset_branch("main", snapshot_id=new_snap)
+        repo.delete_branch(branch)
+    except Exception as e:
+        logger.error(e)
+        logger.info("deleting branch ", branch)
+        repo.delete_branch(branch)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
