@@ -1,8 +1,9 @@
-import contextlib
 import itertools
 import logging
+import os
 import random
 import string
+import tomllib
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
@@ -13,13 +14,42 @@ from typing import Any, Literal
 
 import cfgrib
 import fsspec
-import numcodecs
-import numpy as np
+import icechunk as ic
 import pandas as pd
-import tomllib
 import xarray as xr
 
 TimestampLike = Any
+
+# not great, but we aren't doing any computations here
+warnings.filterwarnings(
+    "ignore", category=UserWarning, message=".*The value of the smallest subnormal.*"
+)
+
+
+def uri_to_token(reponame: str) -> str:
+    """
+    Convert arraylake://path/name format to ARRAYLAKE_TOKEN_PATH format
+
+    Args:
+        reponame (str): String in format 'arraylake://path/name'
+
+    Returns:
+        str: Converted string in format 'ARRAYLAKE_TOKEN_PATH'
+    """
+    # Remove the 'arraylake://' prefix
+    if not reponame.startswith("arraylake://"):
+        raise ValueError("Input string must start with 'arraylake://'")
+
+    path_part = reponame.removeprefix("arraylake://")
+
+    # Split by '/' and take only the first part (before any additional slashes)
+    path_components = path_part.split("/")
+    main_path = path_components[0]
+
+    # Replace hyphens with underscores and convert to uppercase
+    result = f"ARRAYLAKE_TOKEN_{main_path.replace('-', '_').upper()}"
+
+    return result
 
 
 def utcnow():
@@ -66,7 +96,7 @@ class Ingest:
     searches: Sequence[str]
     chunks: dict[str, int]
     renames: dict[str, str] | None = None
-    zarr_store: Any = None
+    session: ic.Session | None = None
 
     def __iter__(self):
         for search in self.searches:
@@ -79,7 +109,7 @@ class Ingest:
                 zarr_group=self.zarr_group,
                 chunks=self.chunks,
                 renames=self.renames,
-                zarr_store=self.zarr_store,
+                session=self.session,
             )
 
 
@@ -95,6 +125,10 @@ class Job:
     runtime: pd.Timestamp
     steps: list[int]
     ingest: Ingest
+
+    def summarize(self):
+        """short repr"""
+        return f"runtime={self.runtime}, steps={self.steps}, ingest=({self.ingest.name}, {self.ingest.model})"
 
 
 class ForecastModel(ABC):
@@ -133,10 +167,15 @@ class ForecastModel(ABC):
                 ),
                 category=UserWarning,
             )
+            warnings.filterwarnings(
+                "ignore",
+                message=".*decode_timedelta will default to False rather than None.*",
+                category=FutureWarning,
+            )
 
             dset = H.xarray(search)
         if isinstance(dset, list):
-            dset = xr.merge(dset)
+            dset = xr.merge(dset, compat="override", join="exact")
         return dset
 
     def get_data_vars(self, search: str, renames: dict[str, str] | None = None) -> Iterable[str]:
@@ -301,13 +340,34 @@ class ForecastModel(ABC):
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
         else:
             level_dim, levels = None, []
-        ds = xr.combine_nested(
-            [
-                xr.merge(cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}))
-                for path in sorted(paths)
-            ],
-            concat_dim="step",
-        )
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=".*decode_timedelta will default to False rather than None.*",
+                category=FutureWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=".*In a future version*",
+                category=FutureWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=".*the default value for compat will change from.*",
+                category=FutureWarning,
+            )
+            ds = xr.combine_nested(
+                [
+                    xr.merge(
+                        cfgrib.open_datasets(path, backend_kwargs={"indexpath": ""}),
+                        join="exact",
+                        compat="override",
+                    )
+                    for path in sorted(paths)
+                ],
+                concat_dim="step",
+            )
         ds = ds.expand_dims("time").sortby("step")
         if levels:
             ds = ds.reindex({level_dim: levels})
@@ -315,7 +375,7 @@ class ForecastModel(ABC):
         counts = ds.count("step").compute()
         if not levels and not (counts == len(job.steps)).to_array().all().item():
             # 3D datasets have lots of corrupt data!
-            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}")
+            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
 
         # TODO: could be more precise here.
         dim_order = tuple(dim for dim in self.dim_order if dim in ds.dims)
@@ -345,12 +405,18 @@ def open_single_grib(
     **kwargs,
 ) -> xr.Dataset:
     """Both cfgrib and gribberish require downloading the whole file."""
-    ds = xr.open_dataset(
-        fsspec.open_local(f"simplecache::{uri}"),
-        engine="cfgrib",
-        backend_kwargs=kwargs,
-        chunks=chunks,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*decode_timedelta will default to False rather than None.*",
+            category=FutureWarning,
+        )
+        ds = xr.open_dataset(
+            fsspec.open_local(f"simplecache::{uri}"),
+            engine="cfgrib",
+            backend_kwargs=kwargs,
+            chunks=chunks,
+        )
     if drop_vars:
         ds = ds.drop_vars(drop_vars, errors="ignore")
     if expand_dims:
@@ -358,58 +424,45 @@ def open_single_grib(
     return ds
 
 
-def get_zarr_store(name):
+def get_repo(name: str, client=None) -> ic.Repository:
     import arraylake as al
 
-    ALPREFIX = "arraylake://"
-    if name.startswith(ALPREFIX):
-        client = al.Client()
-        return client.get_or_create_repo(name.removeprefix(ALPREFIX)).store
-    return name
+    if client is None:
+        client = al.Client(token=os.environ[uri_to_token(name)])
 
-
-def get_repo(name):
-    import arraylake as al
-
-    client = al.Client()
-    return client.get_or_create_repo(f"earthmover-demos/{name}")
-
-
-def create_repo(name: str):
-    import arraylake as al
-
-    client = al.Client()
-    with contextlib.suppress(ValueError):
-        client.delete_repo(f"earthmover-demos/{name}", imsure=True, imreallysure=True)
-
-    return client.create_repo(f"earthmover-demos/{name}")
+    logger.info(f"Opening Arraylake store: {name!r}")
+    return client.get_or_create_repo(name.removeprefix("arraylake://"))
 
 
 def optimize_coord_encoding(values, dx, is_regular=False):
-    if is_regular:
-        dx_all = np.diff(values)
-        np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
+    return {}
+    # if is_regular:
+    #     dx_all = np.diff(values)
+    #     np.testing.assert_allclose(dx_all, dx), "must be regularly spaced"
 
-    offset_codec = numcodecs.FixedScaleOffset(
-        offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
-    )
-    delta_codec = numcodecs.Delta("i8", "i2")
-    compressor = numcodecs.Blosc(cname="zstd")
+    # offset_codec = numcodecs.zarr3.FixedScaleOffset(
+    #     offset=values[0], scale=1 / dx, dtype=values.dtype, astype="i8"
+    # )
+    # delta_codec = numcodecs.zarr3.Delta(dtype="i8", astype="i2")
+    # compressor = numcodecs.zarr3.Blosc(cname="zstd")
 
-    enc0 = offset_codec.encode(values)
-    if is_regular:
-        # everything should be offset by 1 at this point
-        np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
-    enc1 = delta_codec.encode(enc0)
-    # now we should be able to compress the shit out of this
-    enc2 = compressor.encode(enc1)
-    decoded = offset_codec.decode(delta_codec.decode(compressor.decode(enc2)))
+    # enc0 = asyncio.run(offset_codec.encode(values))
+    # print(enc0)
+    # if is_regular:
+    #     # everything should be offset by 1 at this point
+    #     np.testing.assert_equal(np.unique(np.diff(enc0)), [1])
+    # enc1 = asyncio.run(delta_codec.encode(enc0))
+    # # now we should be able to compress the shit out of this
+    # enc2 = asyncio.run(compressor.encode(enc1))
+    # decoded = asyncio.run(
+    #     offset_codec.decode(asyncio.run(delta_codec.decode(asyncio.run(compressor.decode(enc2)))))
+    # )
 
-    # will produce numerical precision differences
-    np.testing.assert_equal(values, decoded)
-    # np.testing.assert_allclose(values, decoded)
+    # # will produce numerical precision differences
+    # np.testing.assert_equal(values, decoded)
+    # # np.testing.assert_allclose(values, decoded)
 
-    return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
+    # return {"compressor": compressor, "filters": (offset_codec, delta_codec)}
 
 
 def create_time_encoding(freq: timedelta) -> dict:

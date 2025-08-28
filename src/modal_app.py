@@ -1,23 +1,27 @@
+import dataclasses
 import itertools
 import logging
+import os
 import random
 import subprocess
 import time
+import uuid
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
-import arraylake as al
+import icechunk as ic
 import modal
 import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
+from zarr.storage import LoggingStore
 
-from src import lib, models
-from src.lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
-from src.lib_modal import MODAL_FUNCTION_KWARGS
+from . import lib, models
+from .lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
+from .lib_modal import MODAL_FUNCTION_KWARGS
 
 logger = get_logger()
 console_handler = logging.StreamHandler()
@@ -25,21 +29,19 @@ logger.addHandler(console_handler)
 
 TimestampLike = Any
 
+LOGGING_STORE: bool = False  # TODO: make a commandline flag / env var
+
 applib = modal.App("earthmover-forecast-ingest-lib")
 
 
-#############
-def rewrite_store(store):
-    import os
-
-    import arraylake as al
+def get_session(uri: str) -> ic.Session:
     from arraylake import Client
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        client = Client(token=os.environ["ARRAYLAKE_TOKEN"])
-        return client.get_repo(store._repo._arepo.repo_name).store
-    else:
-        return store
+    token_name = lib.uri_to_token(uri)
+    logger.info(f"Using token {token_name=!r}")
+    client = Client(token=os.environ[token_name])
+    repo = lib.get_repo(uri, client=client)
+    return repo.writable_session("main")
 
 
 def initialize(ingest) -> None:
@@ -47,7 +49,7 @@ def initialize(ingest) -> None:
     logger.info("initialize: for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    session = get_session(ingest.store)
 
     if ingest.chunks[model.runtime_dim] != 1:
         raise NotImplementedError(
@@ -56,24 +58,32 @@ def initialize(ingest) -> None:
 
     # We write the schema for time-invariant variables first to prevent conflicts
     schema = model.create_schema(ingest).coords.to_dataset().drop_dims([model.runtime_dim])
-    schema.to_zarr(store, group=group, mode="w")
-
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit("Write schema for backfill ingest: {}".format(ingest))
+    logger.debug(f"Writing schema to {group=!r}")
+    schema.to_zarr(
+        session.store, group=group, mode="w", zarr_format=3, consolidated=False, compute=False
+    )
+    props = dataclasses.asdict(ingest)
+    del props["session"]
+    session.commit("Write schema for backfill ingest.", metadata=props)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
-def verify(ingest: Ingest, *, nsteps=5):
+def verify(ingest: Ingest, *, nsteps=None):
+    """Reads `steps` and verifies the data against the original GRIB files."""
     import dask
 
     tic = time.time()
-    store = lib.get_zarr_store(ingest.store)
-    inrepo = xr.open_dataset(store, group=ingest.zarr_group, chunks=None, engine="zarr")
+    session = get_session(ingest.store)
+    inrepo = xr.open_dataset(
+        session.store, group=ingest.zarr_group, chunks=None, engine="zarr", consolidated=False
+    )
     model = models.get_model(ingest.model)
     timedim, stepdim = model.runtime_dim, model.step_dim
 
-    runtime = pd.Timestamp(random.choice(inrepo[timedim].data))
-    step = sorted(random.sample(model.get_steps(runtime), k=nsteps))
+    runtime = pd.Timestamp(random.choice(inrepo[timedim].data.tolist()))
+    step = model.get_steps(runtime)
+    if nsteps is not None:
+        step = sorted(random.sample(step, k=nsteps))
     job = lib.Job(runtime=runtime, steps=step, ingest=ingest)
     logger.info("verify: Running for job: {}".format(job))
 
@@ -109,7 +119,6 @@ def backfill(
     model = models.get_model(ingest.model)
     if till is not None:
         till = till + model.update_freq
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -126,18 +135,16 @@ def update(ingest: Ingest) -> None:
     logger.info("update: Running for ingest {}".format(ingest))
     model = models.get_model(ingest.model)
     group = ingest.zarr_group
-    ingest.zarr_store = rewrite_store(ingest.zarr_store)
-    store = ingest.zarr_store
-    assert store is not None
+    session = get_session(ingest.store)
 
-    if isinstance(store, al.repo.ArraylakeStore):
-        # fastpath
-        instore = store._repo.to_xarray(group)
-    else:
-        instore = xr.open_zarr(store, group=group, mode="r")
+    instore = xr.open_zarr(
+        session.store, group=group, zarr_format=3, consolidated=False, decode_timedelta=True
+    )
+    # instore = xr.open_zarr(store, group=group, mode="r", decode_timedelta=True)
 
     latest_available_date = model.latest_available(ingest)
-    latest_in_store = pd.Timestamp(instore.time[slice(-1, None)].data[0])
+    time = instore[model.runtime_dim]
+    latest_in_store = pd.Timestamp(time[slice(-1, None)].data[0])
     if latest_in_store == latest_available_date:
         # already ingested
         logger.info(
@@ -148,8 +155,7 @@ def update(ingest: Ingest) -> None:
         return
 
     since: pd.Timestamp = pd.Timestamp(
-        datetime.combine(instore.time[-1].dt.date.item(), instore.time[-1].dt.time.item())
-        + model.update_freq
+        datetime.combine(time[-1].dt.date.item(), time[-1].dt.time.item()) + model.update_freq
     )
 
     # Our interval is left-closed [since, till) but latest_available_date must be included
@@ -182,6 +188,9 @@ def write_times(
     (if ``mode="a"`` in ``write_kwargs``) by writing a "schema" dataset of the right
     shape. Then begins a distributed region write to that new section of the dataset.
 
+    This is an orchestrator that cuts up the job in to chunks and sends them on.
+    The actual writing happens in the spawned ``write_herbie`` functions.
+
     Parameters
     ----------
     model: ForecastModel
@@ -198,12 +207,17 @@ def write_times(
        Extra kwargs for writing the schema.
     """
     group = ingest.zarr_group
-    store = ingest.zarr_store
+    repo = lib.get_repo(ingest.store)
+    base = repo.lookup_branch("main")
+    branch = str(uuid.uuid4())
+    repo.create_branch(branch, snapshot_id=base)
+    session = repo.writable_session(branch)
     model = models.get_model(ingest.model)
-    assert store is not None
 
     available_times = model.get_available_times(since, till)
-    logger.info("Available times are {} for ingest {}".format(available_times, ingest))
+    logger.info(
+        "Available times ({}) are {} for {}".format(len(available_times), available_times, ingest)
+    )
 
     schema = model.create_schema(times=available_times, ingest=ingest)
     # Drop time-invariant variables to prevent conflicts
@@ -221,16 +235,22 @@ def write_times(
                 f"Loaded data has data_vars={tuple(dset.data_vars)!r}"
             )
         for name, var in dset.data_vars.items():
-            schema[name].attrs = var.attrs
+            # take attrs from data
+            attrs = var.attrs
+            # overwrite with any set in schema
+            attrs.update(schema[name].attrs)
+            # save that
+            schema[name].attrs = attrs
 
-    zarr_group = zarr.open_group(store)[group]
+    zarr_group = zarr.open_group(session.store)[group]
 
     # Workaround for Xarray overwriting group attrs.
     # https://github.com/pydata/xarray/issues/8755
     schema.attrs.update(zarr_group.attrs.asdict())
 
-    logger.info("Writing schema: {}".format(schema))
-    schema.drop_vars(to_drop).to_zarr(store, group=group, **write_kwargs, compute=False)
+    logger.info("Writing schema for initialize: {}".format(schema))
+    schema.drop_vars(to_drop).to_zarr(session.store, group=group, **write_kwargs, compute=False)
+    logger.info("Finished writing schema for initialize: {}".format(schema))
 
     step_hours = (schema.indexes["step"].asi8 / 1e9 / 3600).astype(int).tolist()
 
@@ -253,43 +273,62 @@ def write_times(
     )
 
     logger.info("Starting write job for {}.".format(ingest.searches))
-    all_jobs = (
-        lib.Job(runtime=time, steps=steps, ingest=ingest)
-        for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
-    )
 
-    # figure out total number of timestamps in store.
-    # This is an optimization to figure out the `region` in `write_herbie`
-    # minimizing number of roundtrips to the object store.
-    ntimes = zarr_group[model.runtime_dim].size
-    list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
+    session.commit("finished initializing for update")
 
-    logger.info("Finished write job for {}.".format(ingest))
-    if isinstance(store, al.repo.ArraylakeStore):
-        store._repo.commit(
-            f"""
-            Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
-            Data: {ingest.model}, {ingest.product} \n
-            Searches: {ingest.searches}.\n
-            zarr_group: {ingest.zarr_group}
-            """
+    try:
+        session = repo.writable_session(branch)
+        ingest.session = session.fork()
+        all_jobs = (
+            lib.Job(runtime=time, steps=steps, ingest=ingest)
+            for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
         )
 
+        # figure out total number of timestamps in store.
+        # This is an optimization to figure out the `region` in `write_herbie`
+        # minimizing number of roundtrips to the object store.
+        ntimes = zarr_group[model.runtime_dim].size
+        results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
-@applib.function(**MODAL_FUNCTION_KWARGS, timeout=900, retries=3)
-def write_herbie(job, *, schema, ntimes=None):
+        logger.info("Finished write job for {}.".format(ingest))
+        properties = dict(
+            start_time=str(available_times[0]),
+            end_time=str(available_times[-1]),
+            model=ingest.model,
+            product=ingest.product,
+            searches=ingest.searches,
+            group=ingest.zarr_group,
+        )
+        message = f"Finished update: {available_times[0]!r} - {available_times[-1]!r}."
+
+        logger.info("Merging changesets for icechunk")
+        for _, fork_session in results:
+            session.merge(fork_session)
+        new_snap = session.commit(message, metadata=properties)
+        repo.reset_branch("main", snapshot_id=new_snap)
+        repo.delete_branch(branch)
+
+    except Exception as e:
+        logger.error(e)
+        logger.info("deleting branch ", branch)
+        repo.delete_branch(branch)
+
+
+@applib.function(**MODAL_FUNCTION_KWARGS, timeout=300, retries=10)
+def write_herbie(job, *, schema, ntimes=None) -> tuple[np.ndarray, ic.Session]:
+    """Actual writes data to disk."""
     import dask
 
     # manage our own pool so we can shutdown intentionally
-    pool = ThreadPoolExecutor()
+    pool = ThreadPoolExecutor(4)
 
     tic = time.time()
 
     ingest = job.ingest
     model = models.get_model(ingest.model)
-    store = ingest.zarr_store
+    assert ingest.session is not None
+    session = ingest.session
     group = ingest.zarr_group
-    assert store is not None
 
     logger.debug("Processing job {}".format(job))
     try:
@@ -302,19 +341,20 @@ def write_herbie(job, *, schema, ntimes=None):
         # (2) The timestamps we are writing are passed in `schema`
         # (3) we know the `step` values.
         # So we can infer `region` without making multiple trips to the Zarr store.
-        index = pd.to_timedelta(schema.indexes["step"], unit="hours")
-        step = pd.to_timedelta(ds.step.data, unit="ns")
+        index = pd.to_timedelta(schema.indexes[model.step_dim], unit="hours")
+        step_data = ds[model.step_dim].data
+        step = pd.to_timedelta(step_data, unit="ns")
         istep = index.get_indexer(step)
         if (istep == -1).any():
-            raise ValueError(f"Could not find all of step={ds.step.data!r} in {index!r}")
+            raise ValueError(f"Could not find all of step={step_data!r} in {index!r}")
         if not (np.diff(istep) == 1).all():
-            raise ValueError(f"step is not continuous={ds.step.data!r}")
+            raise ValueError(f"step is not continuous={step_data!r}")
 
         if ntimes is None:
             time_region = "auto"
         else:
-            index = schema.indexes["time"]
-            itime = index.get_indexer(ds.time.data).item()
+            index = schema.indexes[model.runtime_dim]
+            itime = index.get_indexer(ds[model.runtime_dim].data).item()
             if itime == -1:
                 raise ValueError(f"Could not find time={ds.time.data!r} in {index!r}")
             ntimes -= len(index)  # existing number of timestamps
@@ -322,8 +362,8 @@ def write_herbie(job, *, schema, ntimes=None):
         #############################
 
         region = {
-            "step": slice(istep[0], istep[-1] + 1),
-            "time": time_region,
+            model.step_dim: slice(istep[0], istep[-1] + 1),
+            model.runtime_dim: time_region,
         }
         region.update(
             {dim: slice(None) for dim in model.dim_order if dim not in region and dim in ds.dims}
@@ -334,26 +374,49 @@ def write_herbie(job, *, schema, ntimes=None):
         # Drop coordinates to avoid useless overwriting
         # Verified that this only writes data_vars array chunks
         with dask.config.set(pool=pool):
-            ds.drop_vars(ds.coords).to_zarr(store, group=group, region=region)
+            loaded = ds.drop_vars(ds.coords).compute()
+            logger.info(
+                "      loaded data for job {}. Took {} seconds since start".format(
+                    job.summarize(), time.time() - tic
+                )
+            )
+            if LOGGING_STORE:
+                store_ = LoggingStore(session.store)
+            else:
+                store_ = session.store
+            loaded.to_zarr(store_, group=group, region=region, zarr_format=3, consolidated=False)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
+        logger.debug(
+            "Shutting down pool for job {}. Took {} seconds".format(
+                job.summarize(), time.time() - tic
+            )
+        )
         pool.shutdown()
 
-    logger.info("Finished writing job {}. Took {} seconds".format(job, time.time() - tic))
-    return ds.step
+    logger.info(
+        "      Finished writing job {}. Took {} seconds".format(job.summarize(), time.time() - tic)
+    )
+    return (ds.step.data, session)
 
 
 def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=None) -> None:
+    """Simply dispatches between update and backfill modes."""
     ingest_jobs = lib.parse_toml_config(toml_file_path)
 
-    env = subprocess.run(["pip", "list"], capture_output=True, text=True)
+    env = subprocess.run(["uv", "pip", "list"], capture_output=True, text=True)
     logger.info(env.stdout)
 
     # Set this here for Arraylake so all tasks start with the same state
-    ingests = ingest_jobs.values()
-    for i in ingests:
-        i.zarr_store = lib.get_zarr_store(i.store)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=UserWarning, message="The value of the smallest subnormal"
+        )
+        ingests = ingest_jobs.values()
+        for i in ingests:
+            # create the store if needed
+            lib.get_repo(i.store)
 
     if mode is WriteMode.BACKFILL:
         # TODO: assert zarr_store/group is not duplicated

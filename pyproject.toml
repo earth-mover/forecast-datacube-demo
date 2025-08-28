@@ -1,3 +1,30 @@
+[project]
+name = "forecast-ingest-demo"
+version = "0.1.0"
+description = "Forecast ingestion demo"
+requires-python = ">=3.12"
+dependencies = [
+    "arraylake",
+    "icechunk>=1",
+    "certifi",
+    "cfgrib",
+    "dask",
+    "fsspec",
+    "herbie-data",
+    "s3fs",
+    "xarray",
+    "eccodes==2.37",
+    "pyproj",
+    "zarr>=3",
+    "modal",
+    "pydantic>2",
+    "pdbpp",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [tool.ruff]
 line-length = 100
 

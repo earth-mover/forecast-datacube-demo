@@ -4,24 +4,24 @@ product = "pgrb2.0p25"
 searches = [
   "(?:(?:\\:TMP|RH):2 m above ground|(?:GUST|PRATE):surface|TCDC:entire atmosphere):(?:anl|[0-9]* hour fcst)",
 ]
-store = "arraylake://earthmover-demos/gfs"
+store = "arraylake://earthmover-public/gfs"
 zarr_group =  "solar/"
 chunks = {longitude = 360, latitude = 120, time = 1, step = 24}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}
 
-[job2]
-model = "gfs"
-product = "pgrb2.0p25"
-searches = [
-  ":TMP:2 m above ground:(?:anl|[0-9]* hour fcst)",
-  ":RH:2 m above ground:(?:anl|[0-9]* hour fcst)",
-  ":GUST:surface:(?:anl|[0-9]* hour fcst)",
-  # ":DSWRF:surface:(?:anl|[0-9]* hour fcst)",
-  ":PRATE:surface:(?:anl|[0-9]* hour fcst)",
-  ":SUNSD:surface:(?:anl|[0-9]* hour fcst)",
-  ":TCDC:entire atmosphere:(?:anl|[0-9]* hour fcst)",
-]
-store = "arraylake://earthmover-demos/gfs"
-zarr_group =  "timeseries/"
-chunks = {longitude = 120, latitude = 60, time = 1, step = 209}
-renames = {TMP="t2m", RH="r2", TCDC="tcc", SUNSD="SUNSD"}
+# [job2]
+# model = "gfs"
+# product = "pgrb2.0p25"
+# searches = [
+#   ":TMP:2 m above ground:(?:anl|[0-9]* hour fcst)",
+#   ":RH:2 m above ground:(?:anl|[0-9]* hour fcst)",
+#   ":GUST:surface:(?:anl|[0-9]* hour fcst)",
+#   # ":DSWRF:surface:(?:anl|[0-9]* hour fcst)",
+#   ":PRATE:surface:(?:anl|[0-9]* hour fcst)",
+#   ":SUNSD:surface:(?:anl|[0-9]* hour fcst)",
+#   ":TCDC:entire atmosphere:(?:anl|[0-9]* hour fcst)",
+# ]
+# store = "arraylake://earthmover-demos/gfs"
+# zarr_group =  "timeseries/"
+# chunks = {longitude = 120, latitude = 60, time = 1, step = 209}
+# renames = {TMP="t2m", RH="r2", TCDC="tcc", SUNSD="SUNSD"}

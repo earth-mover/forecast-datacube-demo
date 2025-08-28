@@ -24,7 +24,8 @@ modal run modal_hrrr.py --mode "backfill" --since "2024-05-15"  --toml-file src/
 modal run modal_hrrr.py::hrrr_backfill
 
 # Set up a repeating cron job to update the store.
-modal deploy modal_hrrr.py::hrrr_update_solar
+# Both hrrr_update_solar and hrrr_verify are deployed.
+modal deploy modal_hrrr.py
 ```
 
 ## Configuration
