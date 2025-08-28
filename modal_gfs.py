@@ -4,9 +4,9 @@ from datetime import timedelta
 
 import modal
 
-from modal_app import applib, driver
 from src.lib import WriteMode, utcnow
 from src.lib_modal import MODAL_FUNCTION_KWARGS
+from src.modal_app import applib, driver
 
 app = modal.App("gfs-forecast-ingest")
 app.include(applib)  # necessary
