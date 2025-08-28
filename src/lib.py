@@ -3,6 +3,7 @@ import itertools
 import logging
 import random
 import string
+import tomllib
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Hashable, Iterable, Sequence
@@ -15,7 +16,6 @@ import cfgrib
 import fsspec
 import icechunk as ic
 import pandas as pd
-import tomllib
 import xarray as xr
 
 TimestampLike = Any
@@ -349,7 +349,7 @@ class ForecastModel(ABC):
         counts = ds.count("step").compute()
         if not levels and not (counts == len(job.steps)).to_array().all().item():
             # 3D datasets have lots of corrupt data!
-            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}")
+            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
 
         # TODO: could be more precise here.
         dim_order = tuple(dim for dim in self.dim_order if dim in ds.dims)
