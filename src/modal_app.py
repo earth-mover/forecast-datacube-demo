@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import zarr
+from zarr.storage import LoggingStore
 
 from . import lib, models
 from .lib import Ingest, ReadMode, WriteMode, get_logger, merge_searches
@@ -266,18 +267,19 @@ def write_times(
     logger.info("Starting write job for {}.".format(ingest.searches))
 
     session.commit("finished initializing for update")
-    session = repo.writable_session(branch)
-    ingest.session = session.fork()
-    all_jobs = (
-        lib.Job(runtime=time, steps=steps, ingest=ingest)
-        for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
-    )
 
-    # figure out total number of timestamps in store.
-    # This is an optimization to figure out the `region` in `write_herbie`
-    # minimizing number of roundtrips to the object store.
-    ntimes = zarr_group[model.runtime_dim].size
     try:
+        session = repo.writable_session(branch)
+        ingest.session = session.fork()
+        all_jobs = (
+            lib.Job(runtime=time, steps=steps, ingest=ingest)
+            for ingest, (time, steps) in itertools.product(ingest, time_and_steps)
+        )
+
+        # figure out total number of timestamps in store.
+        # This is an optimization to figure out the `region` in `write_herbie`
+        # minimizing number of roundtrips to the object store.
+        ntimes = zarr_group[model.runtime_dim].size
         results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
         logger.info("Finished write job for {}.".format(ingest))
@@ -290,12 +292,14 @@ def write_times(
             group=ingest.zarr_group,
         )
         message = f"Finished update: {available_times[0]!r} - {available_times[-1]!r}."
+
         logger.info("Merging changesets for icechunk")
         for _, fork_session in results:
             session.merge(fork_session)
         new_snap = session.commit(message, metadata=properties)
         repo.reset_branch("main", snapshot_id=new_snap)
         repo.delete_branch(branch)
+
     except Exception as e:
         logger.error(e)
         logger.info("deleting branch ", branch)
@@ -369,17 +373,14 @@ def write_herbie(job, *, schema, ntimes=None) -> tuple[np.ndarray, ic.Session]:
                 )
             )
             if LOGGING_STORE:
-                from zarr.storage import LoggingStore
-
                 store_ = LoggingStore(session.store)
             else:
                 store_ = session.store
-            # with zarr.config.set({"async.concurrency": 1, "threading.max_workers": None}):
             loaded.to_zarr(store_, group=group, region=region, zarr_format=3, consolidated=False)
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
-        logger.info(
+        logger.debug(
             "Shutting down pool for job {}. Took {} seconds".format(
                 job.summarize(), time.time() - tic
             )
