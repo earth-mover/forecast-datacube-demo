@@ -166,6 +166,7 @@ class GFS(ForecastModel):
 
         schema["step"].encoding["chunks"] = schema.step.shape
         schema["step"].encoding["units"] = "hours"
+        schema["step"].encoding["dtype"] = "timedelta64[h]"
         schema["step"].attrs["standard_name"] = "forecast_period"
 
         schema.attrs = {
