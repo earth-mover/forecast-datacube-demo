@@ -1,3 +1,4 @@
+import dataclasses
 import itertools
 import logging
 import os
@@ -58,7 +59,9 @@ def initialize(ingest) -> None:
     schema.to_zarr(
         session.store, group=group, mode="w", zarr_format=3, consolidated=False, compute=False
     )
-    session.commit("Write schema for backfill ingest: {}".format(ingest))
+    props = dataclasses.asdict(ingest)
+    del props["session"]
+    session.commit("Write schema for backfill ingest.", metadata=props)
 
 
 @applib.function(**MODAL_FUNCTION_KWARGS, timeout=1200)
@@ -278,17 +281,19 @@ def write_times(
         results = list(write_herbie.map(all_jobs, kwargs={"schema": schema, "ntimes": ntimes}))
 
         logger.info("Finished write job for {}.".format(ingest))
-        message = f"""
-            Finished update: {available_times[0]!r}, till {available_times[-1]!r}.\n
-            Data: {ingest.model}, {ingest.product} \n
-            Searches: {ingest.searches}.\n
-            zarr_group: {ingest.zarr_group}
-            """
+        properties = dict(
+            start_time=str(available_times[0]),
+            end_time=str(available_times[-1]),
+            model=ingest.model,
+            product=ingest.product,
+            searches=ingest.searches,
+            group=ingest.zarr_group,
+        )
+        message = f"Finished update: {available_times[0]!r} - {available_times[-1]!r}."
         logger.info("Merging changesets for icechunk")
         for _, fork_session in results:
             session.merge(fork_session)
-
-        new_snap = session.commit(message)
+        new_snap = session.commit(message, metadata=properties)
         repo.reset_branch("main", snapshot_id=new_snap)
         repo.delete_branch(branch)
     except Exception as e:
