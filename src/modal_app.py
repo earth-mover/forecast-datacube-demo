@@ -3,7 +3,6 @@ import itertools
 import logging
 import os
 import random
-import subprocess
 import time
 import uuid
 import warnings
@@ -408,8 +407,8 @@ def driver(*, mode: WriteMode | ReadMode, toml_file_path: str, since=None, till=
     """Simply dispatches between update and backfill modes."""
     ingest_jobs = lib.parse_toml_config(toml_file_path)
 
-    env = subprocess.run(["uv", "pip", "list"], capture_output=True, text=True)
-    logger.info(env.stdout)
+    # env = subprocess.run(["uv", "pip", "list"], capture_output=True, text=True)
+    # logger.info(env.stdout)
 
     # Set this here for Arraylake so all tasks start with the same state
     with warnings.catch_warnings():
