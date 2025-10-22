@@ -26,6 +26,10 @@ warnings.filterwarnings(
 )
 
 
+class IncompleteFileSetError(Exception):
+    pass
+
+
 def uri_to_token(reponame: str) -> str:
     """
     Convert arraylake://path/name format to ARRAYLAKE_TOKEN_PATH format
@@ -326,9 +330,11 @@ class ForecastModel(ABC):
                 ),
                 category=UserWarning,
             )
+            if not FH.file_not_exists:
+                raise IncompleteFileSetError()
             inv = FH.inventory(search=search)
             if inv.forecast_time.nunique() != len(job.steps):
-                raise ValueError(f"Not all files are available for job: {job!r}")
+                raise IncompleteFileSetError()
 
             paths = FH.download(search=search)
             logger.debug("Downloaded paths {}".format(paths))

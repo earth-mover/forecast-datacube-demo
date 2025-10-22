@@ -306,11 +306,12 @@ def write_times(
             session.merge(fork_session)
         new_snap = session.commit(message, metadata=properties)
         repo.reset_branch("main", snapshot_id=new_snap)
-        repo.delete_branch(branch)
 
     except Exception as e:
-        logger.error(e)
-        logger.info("deleting branch ", branch)
+        logger.error(str(e))
+
+    finally:
+        logger.info("deleting branch {}", branch)
         repo.delete_branch(branch)
 
 
@@ -385,6 +386,8 @@ def write_herbie(job, *, schema, ntimes=None) -> tuple[np.ndarray, ic.Session]:
             else:
                 store_ = session.store
             loaded.to_zarr(store_, group=group, region=region, zarr_format=3, consolidated=False)
+    except lib.IncompleteFileSetError as e:
+        raise e
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:
