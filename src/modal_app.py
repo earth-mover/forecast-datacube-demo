@@ -37,7 +37,7 @@ def get_session(uri: str) -> ic.Session:
     from arraylake import Client
 
     token_name = lib.uri_to_token(uri)
-    logger.info(f"Using token {token_name=!r}")
+    logger.info("Using token {}".format(token_name))
     client = Client(token=os.environ[token_name])
     repo = lib.get_repo(uri, client=client)
     return repo.writable_session("main")
@@ -310,7 +310,7 @@ def write_times(
         logger.error(str(e))
 
     finally:
-        logger.info("deleting branch {}", branch)
+        logger.info("deleting branch {}".format(branch))
         repo.delete_branch(branch)
 
 
