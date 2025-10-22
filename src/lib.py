@@ -330,11 +330,11 @@ class ForecastModel(ABC):
                 ),
                 category=UserWarning,
             )
-            if not FH.file_not_exists:
-                raise IncompleteFileSetError()
+            if FH.file_not_exists:
+                raise IncompleteFileSetError(str(job))
             inv = FH.inventory(search=search)
             if inv.forecast_time.nunique() != len(job.steps):
-                raise IncompleteFileSetError()
+                raise IncompleteFileSetError(str(job))
 
             paths = FH.download(search=search)
             logger.debug("Downloaded paths {}".format(paths))
