@@ -74,3 +74,8 @@ module=[
 "pyproj.*",
 "zarr.*",
 ]
+
+[dependency-groups]
+dev = [
+    "marimo>=0.17.0",
+]

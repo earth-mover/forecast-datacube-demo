@@ -161,7 +161,7 @@ class ForecastModel(ABC):
         """
         from herbie import Herbie
 
-        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        H = Herbie("2025-01-01", model=self.name, fxx=0)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -189,7 +189,7 @@ class ForecastModel(ABC):
         """
         from herbie import Herbie
 
-        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        H = Herbie("2025-01-01", model=self.name, fxx=0)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -200,9 +200,19 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
 
+            inv = H.inventory(search)
+            if "param" in inv.columns:
+                varcol = "param"
+            elif "variable" in inv.columns:
+                varcol = "variable"
+            else:
+                raise ValueError(
+                    f"Unknown variable name column for dataframe with columns: {inv.columns!r}"
+                )
+
             data_vars = [
                 renames.get(name, name.lower()) if renames is not None else name
-                for name in H.inventory(search).variable.unique()
+                for name in inv[varcol].unique()
                 # funny unknown HRRR variable
                 if not name.startswith("var discipline=")
             ]
@@ -215,7 +225,7 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie
 
-        time = pd.Timestamp("2023-01-01")
+        time = pd.Timestamp("2025-01-01")
         H = FastHerbie([time], model=self.name, fxx=self.get_steps(time))
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -227,6 +237,7 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
 
+            # FIXME for ecmwf
             unique_steps = H.inventory(search).forecast_time.unique()
         return [0 if s == "anl" else int(s.removesuffix(" hour fcst")) for s in unique_steps]
 
@@ -237,7 +248,7 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie
 
-        time = pd.Timestamp("2023-01-01")
+        time = pd.Timestamp("2025-01-01")
         H = FastHerbie([time], model=self.name, product=product, fxx=self.get_steps(time))
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -333,14 +344,30 @@ class ForecastModel(ABC):
             if FH.file_not_exists:
                 raise IncompleteFileSetError(str(job))
             inv = FH.inventory(search=search)
-            if inv.forecast_time.nunique() != len(job.steps):
+
+            if "forecast_time" in inv.columns:
+                nsteps = inv.forecast_time.nunique()
+            elif "step" in inv.columns:
+                nsteps = inv.step.nunique()
+            else:
+                raise ValueError(
+                    f"Unknown step column name in inventory with columns: {inv.columns!r}"
+                )
+
+            if nsteps != len(job.steps):
                 raise IncompleteFileSetError(str(job))
 
             paths = FH.download(search=search)
             logger.debug("Downloaded paths {}".format(paths))
 
         # TODO: really need a better way to handle vertical levels
-        unique_levels = inv.level.unique()
+        if "level" in inv.columns:
+            levelname = "level"
+        elif "levelist" in inv.columns:
+            levelname = "levelist"
+        else:
+            raise ValueError(f"Unknown step column name in inventory with columns: {inv.columns!r}")
+        unique_levels = inv[levelname].unique()
         if len(unique_levels) > 1 and all(" mb" in level for level in unique_levels):
             logger.debug(f"Returning isobaricInhPa for {unique_levels=!r}")
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]

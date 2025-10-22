@@ -34,5 +34,6 @@ MODAL_FUNCTION_KWARGS: ModalKwargs = dict(
     secrets=[
         modal.Secret.from_name("deepak-earthmover-public-token"),
         modal.Secret.from_name("deepak-earthmover-integration-token"),
+        modal.Secret.from_name("deepak-earthmover-demos-token"),
     ],
 )
