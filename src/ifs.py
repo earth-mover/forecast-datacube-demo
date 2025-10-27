@@ -1,56 +1,41 @@
-import time
 from collections.abc import Hashable, Sequence
 from datetime import timedelta
 
 import dask.array
-import fsspec
 import numpy as np
 import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import ForecastModel, IndexColumns, Ingest, merge_searches, open_single_grib
+from .lib import ForecastModel, IndexColumns, Ingest, merge_searches
 
 logger = lib.get_logger()
 
 
-class GFS(ForecastModel):
+class IFS(ForecastModel):
     # Product specific kwargs
-    name = "gfs"
+    name = "ifs"
     runtime_dim = "time"
     step_dim = "step"
     expand_dims = ("step", "time")
     drop_vars = ("valid_time",)
-    update_freq = timedelta(hours=6)
+    update_freq = timedelta(hours=12)
     dim_order = ("longitude", "latitude", "time", "step")
 
     columns = IndexColumns(
-        level="level",
-        variable="variable",
-        step="forecast_time",
+        level="levelist",
+        variable="param",
+        valid_time="valid_time",
     )
 
     def get_steps(self, time: pd.Timestamp) -> Sequence:
-        return list(range(120)) + list(range(120, 385, 3))
+        return np.arange(0, 144, 3).tolist() + np.arange(144, 241, 6).tolist()
 
     def get_urls(self, time: pd.Timestamp) -> list[str]:
         """
         Returns list of urls given a model run timestamp.
         """
-        date_str = time.strftime("%Y%m%d")
-        start = time.floor("6h").strftime("%H")
-        print(date_str, start)
-        fs = fsspec.filesystem("s3")
-        urls = sorted(
-            [
-                "s3://" + f
-                for f in fs.glob(
-                    f"s3://noaa-gfs-bdp-pds/gfs.{date_str}/{start}/atmos/gfs.t{start}z.pgrb2.0p25.f*"
-                )
-                if "idx" not in f
-            ]
-        )
-        return urls
+        raise NotImplementedError
 
     def open_single_grib(
         self,
@@ -59,66 +44,10 @@ class GFS(ForecastModel):
         drop_vars: Sequence[Hashable] | None = None,
         **kwargs,
     ) -> xr.Dataset:
-        if expand_dims is None:
-            expand_dims = self.expand_dims
-        if drop_vars is None:
-            drop_vars = self.drop_vars
-
-        if uri.endswith(".f000"):
-            # initialization is always stepType="instant".
-            filter_by_keys = kwargs.pop("filter_by_keys", None)
-            if filter_by_keys:
-                filter_by_keys = {
-                    k: "instant" if k == "stepType" and v != "instant" else v
-                    for k, v in filter_by_keys.items()
-                }
-            kwargs["filter_by_keys"] = filter_by_keys
-        tic = time.time()
-        ds = open_single_grib(uri, expand_dims=expand_dims, drop_vars=drop_vars, **kwargs)
-        logger.debug("Reading %s took %d sec", uri, time.time() - tic)
-
-        return ds
+        raise NotImplementedError
 
     def open_multiple_gribs(self, urls, expand_dims=None, drop_vars=None, **kwargs):
-        """Uses a threadpool to download the GRIB files, before opening them with xarray"""
-        from concurrent.futures import ThreadPoolExecutor, wait
-
-        def fsspec_open(uri: str) -> str:
-            import time
-
-            tic = time.time()
-            # Make sure that fsspec uses the same names
-            # so that we can infer whether we're opening the first grib.
-            local_uri = fsspec.open_local(f"simplecache::{uri}", simplecache={"same_names": True})
-            logger.debug(
-                "threadpool: Downloading uri %s to %s took %d sec",
-                uri,
-                local_uri,
-                time.time() - tic,
-            )
-            return local_uri
-
-        with ThreadPoolExecutor(max_workers=None) as executor:
-            futures = [executor.submit(fsspec_open, uri) for uri in urls]
-            wait(futures)
-
-        dsets = [
-            self.open_single_grib(
-                f.result(),
-                expand_dims=expand_dims,
-                drop_vars=drop_vars,
-                **kwargs,
-            )
-            for f in futures
-        ]
-        return xr.concat(
-            dsets,
-            dim=self.step_dim,
-            join="override",
-            compat="override",
-            data_vars="minimal",
-            coords="minimal",
-        )
+        raise NotImplementedError
 
     def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
         """
@@ -138,7 +67,7 @@ class GFS(ForecastModel):
         )
         schema["longitude"] = (
             "longitude",
-            np.arange(0, 360, 0.25),
+            np.arange(-180, 180, 0.25),
             {"standard_name": "longitude", "units": "degrees_east"},
         )
         schema["time"] = ("time", times, {"standard_name": "forecast_reference_time"})
@@ -176,7 +105,7 @@ class GFS(ForecastModel):
         schema["step"].attrs["standard_name"] = "forecast_period"
 
         schema.attrs = {
-            "description": "GFS data ingested for forecasting demo",
+            "description": "IFS data ingested for forecasting demo",
         }
 
         if search is None:

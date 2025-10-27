@@ -8,6 +8,7 @@ store = "arraylake://earthmover-public/gfs"
 zarr_group =  "solar/"
 chunks = {longitude = 360, latitude = 120, time = 1, step = 24}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}
+check_nans = true
 
 # [job2]
 # model = "gfs"

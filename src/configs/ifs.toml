@@ -1,0 +1,11 @@
+[job1]
+model = "ifs"
+product = "oper"
+searches = [
+    "(?:2t|10u|10v|100u|100v|ptype|tprate|ssrd|sp|10fg|svn|sve):sfc",
+]
+store = "arraylake://earthmover-demos/ifs"
+zarr_group =  "sfc/"
+chunks = {longitude = 360, latitude = 120, time = 1, step = 17}
+renames = {10u="u10", 10v="v10", 2t="t2m", 100u="u100", 100v="v100", 10fg="fg10"}
+check_nans = false

@@ -387,6 +387,8 @@ def write_herbie(job, *, schema, ntimes=None) -> tuple[np.ndarray, ic.Session]:
             loaded.to_zarr(store_, group=group, region=region, zarr_format=3, consolidated=False)
     except lib.IncompleteFileSetError as e:
         raise e
+        # return (None, session)
+
     except Exception as e:
         raise RuntimeError(f"Failed for {job}") from e
     finally:

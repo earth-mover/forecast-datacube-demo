@@ -8,3 +8,4 @@ store = "arraylake://earthmover-integration/hrrr"
 zarr_group =  "solar/"
 chunks = {x = 360, y = 120, time = 1, step = 19}
 renames = {TMP="t2m", RH="r2", TCDC="tcc"}
+check_nans = true

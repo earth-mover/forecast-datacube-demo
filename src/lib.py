@@ -99,6 +99,7 @@ class Ingest:
     zarr_group: str
     searches: Sequence[str]
     chunks: dict[str, int]
+    check_nans: bool
     renames: dict[str, str] | None = None
     session: ic.Session | None = None
 
@@ -114,6 +115,7 @@ class Ingest:
                 chunks=self.chunks,
                 renames=self.renames,
                 session=self.session,
+                check_nans=self.check_nans,
             )
 
 
@@ -135,6 +137,15 @@ class Job:
         return f"runtime={self.runtime}, steps={self.steps}, ingest=({self.ingest.name}, {self.ingest.model})"
 
 
+@dataclass
+class IndexColumns:
+    """Column names in the index file"""
+
+    level: str
+    variable: str
+    step: str
+
+
 class ForecastModel(ABC):
     name: str
     runtime_dim: str
@@ -143,6 +154,8 @@ class ForecastModel(ABC):
     drop_vars: Sequence[str]
     dim_order: Sequence[str]
     update_freq: timedelta
+
+    columns: IndexColumns
 
     @abstractmethod
     def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
@@ -161,7 +174,7 @@ class ForecastModel(ABC):
         """
         from herbie import Herbie
 
-        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        H = Herbie("2025-01-01", model=self.name, fxx=0)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -189,7 +202,7 @@ class ForecastModel(ABC):
         """
         from herbie import Herbie
 
-        H = Herbie("2023-01-01", model=self.name, fxx=0)
+        H = Herbie("2025-01-01", model=self.name, fxx=0)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -200,9 +213,10 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
 
+            inv = H.inventory(search)
             data_vars = [
                 renames.get(name, name.lower()) if renames is not None else name
-                for name in H.inventory(search).variable.unique()
+                for name in inv[self.columns.variable].unique()
                 # funny unknown HRRR variable
                 if not name.startswith("var discipline=")
             ]
@@ -215,7 +229,7 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie
 
-        time = pd.Timestamp("2023-01-01")
+        time = pd.Timestamp("2025-01-01")
         H = FastHerbie([time], model=self.name, fxx=self.get_steps(time))
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -227,6 +241,7 @@ class ForecastModel(ABC):
                 category=UserWarning,
             )
 
+            # FIXME for ecmwf
             unique_steps = H.inventory(search).forecast_time.unique()
         return [0 if s == "anl" else int(s.removesuffix(" hour fcst")) for s in unique_steps]
 
@@ -237,7 +252,7 @@ class ForecastModel(ABC):
         """
         from herbie import FastHerbie
 
-        time = pd.Timestamp("2023-01-01")
+        time = pd.Timestamp("2025-01-01")
         H = FastHerbie([time], model=self.name, product=product, fxx=self.get_steps(time))
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -333,14 +348,16 @@ class ForecastModel(ABC):
             if FH.file_not_exists:
                 raise IncompleteFileSetError(str(job))
             inv = FH.inventory(search=search)
-            if inv.forecast_time.nunique() != len(job.steps):
+
+            nsteps = inv[self.columns.step].nunique()
+            if nsteps != len(job.steps):
                 raise IncompleteFileSetError(str(job))
 
             paths = FH.download(search=search)
             logger.debug("Downloaded paths {}".format(paths))
 
         # TODO: really need a better way to handle vertical levels
-        unique_levels = inv.level.unique()
+        unique_levels = inv[self.columns.level].unique()
         if len(unique_levels) > 1 and all(" mb" in level for level in unique_levels):
             logger.debug(f"Returning isobaricInhPa for {unique_levels=!r}")
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
@@ -378,10 +395,11 @@ class ForecastModel(ABC):
         if levels:
             ds = ds.reindex({level_dim: levels})
 
-        counts = ds.count("step").compute()
-        if not levels and not (counts == len(job.steps)).to_array().all().item():
-            # 3D datasets have lots of corrupt data!
-            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
+        if job.ingest.check_nans:
+            counts = ds.count("step").compute()
+            if not levels and not (counts == len(job.steps)).to_array().all().item():
+                # 3D datasets have lots of corrupt data!
+                raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
 
         # TODO: could be more precise here.
         dim_order = tuple(dim for dim in self.dim_order if dim in ds.dims)
