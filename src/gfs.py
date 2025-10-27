@@ -9,7 +9,7 @@ import pandas as pd
 import xarray as xr
 
 from . import lib
-from .lib import ForecastModel, Ingest, merge_searches, open_single_grib
+from .lib import ForecastModel, IndexColumns, Ingest, merge_searches, open_single_grib
 
 logger = lib.get_logger()
 
@@ -23,6 +23,12 @@ class GFS(ForecastModel):
     drop_vars = ("valid_time",)
     update_freq = timedelta(hours=6)
     dim_order = ("longitude", "latitude", "time", "step")
+
+    columns = IndexColumns(
+        level="level",
+        variable="variable",
+        step="forecast_time",
+    )
 
     def get_steps(self, time: pd.Timestamp) -> Sequence:
         return list(range(120)) + list(range(120, 385, 3))

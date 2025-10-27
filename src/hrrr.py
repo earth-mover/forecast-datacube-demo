@@ -8,7 +8,7 @@ import pyproj
 import xarray as xr
 
 from . import lib
-from .lib import ForecastModel, Ingest, merge_searches
+from .lib import ForecastModel, IndexColumns, Ingest, merge_searches
 
 logger = lib.get_logger()
 
@@ -53,6 +53,12 @@ class HRRR(ForecastModel):
     drop_vars = ("valid_time",)
     dim_order = ("isobaricInhPa", "x", "y", "time", "step")
     update_freq = timedelta(hours=1)
+
+    columns = IndexColumns(
+        level="level",
+        variable="variable",
+        step="forecast_time",
+    )
 
     # GRIB_gridType : lambert
     # GRIB_DxInMetres : 3000.0

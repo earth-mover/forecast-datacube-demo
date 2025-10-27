@@ -99,6 +99,7 @@ class Ingest:
     zarr_group: str
     searches: Sequence[str]
     chunks: dict[str, int]
+    check_nans: bool
     renames: dict[str, str] | None = None
     session: ic.Session | None = None
 
@@ -114,6 +115,7 @@ class Ingest:
                 chunks=self.chunks,
                 renames=self.renames,
                 session=self.session,
+                check_nans=self.check_nans,
             )
 
 
@@ -135,6 +137,15 @@ class Job:
         return f"runtime={self.runtime}, steps={self.steps}, ingest=({self.ingest.name}, {self.ingest.model})"
 
 
+@dataclass
+class IndexColumns:
+    """Column names in the index file"""
+
+    level: str
+    variable: str
+    step: str
+
+
 class ForecastModel(ABC):
     name: str
     runtime_dim: str
@@ -143,6 +154,8 @@ class ForecastModel(ABC):
     drop_vars: Sequence[str]
     dim_order: Sequence[str]
     update_freq: timedelta
+
+    columns: IndexColumns
 
     @abstractmethod
     def create_schema(self, ingest: Ingest, *, times=None) -> xr.Dataset:
@@ -201,18 +214,9 @@ class ForecastModel(ABC):
             )
 
             inv = H.inventory(search)
-            if "param" in inv.columns:
-                varcol = "param"
-            elif "variable" in inv.columns:
-                varcol = "variable"
-            else:
-                raise ValueError(
-                    f"Unknown variable name column for dataframe with columns: {inv.columns!r}"
-                )
-
             data_vars = [
                 renames.get(name, name.lower()) if renames is not None else name
-                for name in inv[varcol].unique()
+                for name in inv[self.columns.variable].unique()
                 # funny unknown HRRR variable
                 if not name.startswith("var discipline=")
             ]
@@ -345,15 +349,7 @@ class ForecastModel(ABC):
                 raise IncompleteFileSetError(str(job))
             inv = FH.inventory(search=search)
 
-            if "forecast_time" in inv.columns:
-                nsteps = inv.forecast_time.nunique()
-            elif "step" in inv.columns:
-                nsteps = inv.step.nunique()
-            else:
-                raise ValueError(
-                    f"Unknown step column name in inventory with columns: {inv.columns!r}"
-                )
-
+            nsteps = inv[self.columns.step].nunique()
             if nsteps != len(job.steps):
                 raise IncompleteFileSetError(str(job))
 
@@ -361,13 +357,7 @@ class ForecastModel(ABC):
             logger.debug("Downloaded paths {}".format(paths))
 
         # TODO: really need a better way to handle vertical levels
-        if "level" in inv.columns:
-            levelname = "level"
-        elif "levelist" in inv.columns:
-            levelname = "levelist"
-        else:
-            raise ValueError(f"Unknown step column name in inventory with columns: {inv.columns!r}")
-        unique_levels = inv[levelname].unique()
+        unique_levels = inv[self.columns.level].unique()
         if len(unique_levels) > 1 and all(" mb" in level for level in unique_levels):
             logger.debug(f"Returning isobaricInhPa for {unique_levels=!r}")
             level_dim, levels = "isobaricInhPa", [int(s.removesuffix(" mb")) for s in unique_levels]
@@ -405,10 +395,11 @@ class ForecastModel(ABC):
         if levels:
             ds = ds.reindex({level_dim: levels})
 
-        counts = ds.count("step").compute()
-        if not levels and not (counts == len(job.steps)).to_array().all().item():
-            # 3D datasets have lots of corrupt data!
-            raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
+        if job.ingest.check_nans:
+            counts = ds.count("step").compute()
+            if not levels and not (counts == len(job.steps)).to_array().all().item():
+                # 3D datasets have lots of corrupt data!
+                raise ValueError(f"This dataset has NaNs. Aborting \n{counts}. {job=!r}")
 
         # TODO: could be more precise here.
         dim_order = tuple(dim for dim in self.dim_order if dim in ds.dims)
