@@ -30,8 +30,9 @@ def ifs_backfill():
     """Run this "backfill" function with `modal run modal_ifs.py::ifs_backfill`."""
     file = "src/configs/ifs.toml"
     mode = WriteMode.BACKFILL
-    since = datetime(2025, 10, 20)
-    till = datetime.now() - timedelta(days=1, hours=0)
+    since = datetime(2024, 2, 1)
+    # since = datetime(2025, 10, 21)
+    till = datetime.now() - timedelta(days=0, hours=0)
     # till = datetime(2025, 2, 4, 0, 0, 0)
 
     driver(mode=mode, toml_file_path=file, since=since, till=till)
